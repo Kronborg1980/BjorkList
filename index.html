@@ -15,6 +15,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<!-- makes the printable PDF; without it the app falls back to the browser print dialog -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 /* ---------- tokens ---------- */
 :root{
@@ -357,7 +359,10 @@ var T = {
     notSetUp:"Deling er ikke sat op endnu",
     setUpHelp:"Åbn filen og indsæt jeres Firebase-oplysninger øverst i FB_CONFIG. Så virker knappen.",
     signedInAs:"Logget ind som", pwHint:"Mindst 6 tegn",
-    withGoogle:"Fortsæt med Google", orEmail:"Eller brug e-mail og kodeord",
+    pdf:"Lav en PDF", pdfThis:"Denne liste", pdfAll:"Alle lister", pdfWeek:"Ugeskema",
+    pdfNote:"PDF'en er lavet til at printe og hænge op. Ikoner kommer ikke med — kun teksten og felterne.",
+    backup:"Sikkerhedskopi", restore:"Gendan fra fil", pdfMissing:"Kunne ikke lave PDF — åbner print i stedet",
+    printed:"PDF gemt", withGoogle:"Fortsæt med Google", orEmail:"Eller brug e-mail og kodeord",
     hideEmail:"Skjul", popupBlocked:"Browseren blokerede vinduet — prøver på en anden måde …"
   },
   en:{
@@ -386,7 +391,10 @@ var T = {
     notSetUp:"Sharing isn't set up yet",
     setUpHelp:"Open the file and paste your Firebase details into FB_CONFIG at the top. Then this button works.",
     signedInAs:"Signed in as", pwHint:"At least 6 characters",
-    withGoogle:"Continue with Google", orEmail:"Or use email and password",
+    pdf:"Make a PDF", pdfThis:"This list", pdfAll:"All lists", pdfWeek:"Week sheet",
+    pdfNote:"The PDF is made for printing and pinning up. Icons are left out — just the words and the boxes.",
+    backup:"Backup file", restore:"Restore from file", pdfMissing:"Couldn't make the PDF — opening print instead",
+    printed:"PDF saved", withGoogle:"Continue with Google", orEmail:"Or use email and password",
     hideEmail:"Hide", popupBlocked:"The browser blocked the window — trying another way …"
   }
 };
@@ -814,9 +822,10 @@ function sheetSettings(){
     '<div class="field"><span>'+t("theme")+'</span><div class="opts">'+
       '<button class="opt" data-look="day" aria-pressed="'+(S.theme==="day")+'">☀️ '+t("day")+'</button>'+
       '<button class="opt" data-look="dusk" aria-pressed="'+(S.theme==="dusk")+'">🌙 '+t("dusk")+'</button></div></div>'+
-    '<div class="sheetfoot"><button class="btn" id="sSync">☁️ '+t("sync")+'</button></div>'+
-    '<div class="sheetfoot"><button class="btn" id="sExport">⬇️ '+t("export")+'</button>'+
-      '<button class="btn" id="sImport">⬆️ '+t("import")+'</button></div>'+
+    '<div class="sheetfoot"><button class="btn" id="sSync">☁️ '+t("sync")+'</button>'+
+      '<button class="btn" id="sPdf">📄 '+t("pdf")+'</button></div>'+
+    '<div class="sheetfoot"><button class="btn" id="sExport">⬇️ '+t("backup")+'</button>'+
+      '<button class="btn" id="sImport">⬆️ '+t("restore")+'</button></div>'+
     '<div class="sheetfoot"><button class="btn danger" id="sReset">'+t("reset")+'</button>'+
       '<button class="btn primary" data-close>'+t("close")+'</button></div>'+
     '<input type="file" id="sFile" accept="application/json" hidden>';
@@ -837,6 +846,7 @@ function sheetSettings(){
       setTimeout(function(){ URL.revokeObjectURL(a.href); },2000); return;
     }
     if(e.target.closest("#sSync")){ sheetSync(); return; }
+    if(e.target.closest("#sPdf")){ sheetPdf(); return; }
     if(e.target.closest("#sImport")){ $("#sFile").click(); return; }
     if(e.target.closest("#sReset")){
       if(confirm(t("resetAsk"))){ S=seed(); closeSheet(); render(); }
@@ -991,9 +1001,21 @@ document.addEventListener("pointerup", function(){
 });
 
 /* ================= cloud sharing (optional) =================
-   Paste your Firebase web-app details here. Leave apiKey empty and the app
-   simply stays offline on this device. Nothing here is secret — the database
-   rules do the protecting. */
+   These are the Firebase web-app details. They are MEANT to be public: every
+   visitor's browser has to read them to reach the project at all, so there is
+   no way to hide them in a static site, and Google documents them as public
+   identifiers rather than credentials. GitHub's secret scanner still flags the
+   apiKey on sight — that alert is a false positive and rotating the key would
+   only break the app.
+
+   What actually protects the data:
+     1. Realtime Database rules  — nobody reads or writes a household they are
+        not a member of (see firebase-rules.json).
+     2. Authorized domains       — sign-in only works from our own domains.
+     3. API key restrictions     — the key is limited to those same domains in
+        the Google Cloud console.
+
+   Leave apiKey empty and the app simply stays offline on this device. */
 var FB_CONFIG = {
   apiKey: "AIzaSyDmUBI0x_IXyxiyH4GfltOjAyN7tB1IyzU",
   authDomain: "bjorkliste.firebaseapp.com",
@@ -1153,6 +1175,169 @@ function googleIn(fail){
   });
 }
 
+/* ================= printable PDF ================= */
+var PW=595.28, PH=841.89, PM=48;
+var INK=[42,46,39], SOFT=[110,118,104], RULE=[214,222,206], LEAF=[79,139,74];
+var PCOL=[[79,139,74],[91,143,176],[194,69,60],[231,177,74],[138,118,196],[79,167,155]];
+
+/* the PDF fonts cover æøå but not emoji, so icons are dropped rather than drawn as tofu */
+function plain(s){
+  return String(s).replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{FE0F}\u{1F1E6}-\u{1F1FF}]/gu,"")
+    .replace(/\s+/g," ").trim();
+}
+function slug(s){ return plain(s).replace(/[^\w\u00C0-\u017F -]/g,"").replace(/\s+/g,"-").slice(0,40) || "liste"; }
+function repLabel(it){
+  if(it.repeat==="daily") return t("daily");
+  if(it.repeat==="monthly") return t("monthly");
+  if(it.repeat==="weekly"){
+    var ds=T[S.lang]?T[S.lang].days:T.en.days;
+    return it.days.map(function(i){ return ds[i]; }).join(" ");
+  }
+  return "";
+}
+function pdfHead(doc, sub){
+  doc.setFont("helvetica","bold"); doc.setFontSize(23);
+  doc.setTextColor(INK[0],INK[1],INK[2]);
+  doc.text("Bjørkliste", PM, 62);
+  doc.setFont("helvetica","normal"); doc.setFontSize(9.5);
+  doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
+  doc.text(plain(sub), PW-PM, 62, {align:"right"});
+  var y=78;
+  doc.setDrawColor(RULE[0],RULE[1],RULE[2]); doc.setLineWidth(2.4);
+  doc.line(PM,y,PW-PM,y);
+  doc.setDrawColor(INK[0],INK[1],INK[2]);          /* birch dashes across the rule */
+  [0.06,0.27,0.52,0.79].forEach(function(p){
+    var x=PM+(PW-2*PM)*p; doc.line(x,y,x+20,y);
+  });
+  return 108;
+}
+function pdfFoot(doc){
+  var n=doc.internal.getNumberOfPages();
+  for(var i=1;i<=n;i++){
+    doc.setPage(i);
+    doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+    doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
+    doc.text(String(i)+" / "+n, PW/2, PH-30, {align:"center"});
+  }
+}
+function pdfBox(doc,x,y,size,ticked){
+  doc.setDrawColor(160,170,152); doc.setLineWidth(1.1);
+  doc.roundedRect(x, y-size+2, size, size, 3, 3, "S");
+  if(ticked){
+    doc.setDrawColor(LEAF[0],LEAF[1],LEAF[2]); doc.setLineWidth(1.9);
+    doc.line(x+2.6, y-size/2+1.4, x+size*0.42, y-1.4);
+    doc.line(x+size*0.42, y-1.4, x+size-2.2, y-size+5.2);
+  }
+}
+function listTitle(doc, L, y){
+  if(y>PH-150){ doc.addPage(); y=pdfHead(doc, plain(S.name||"Bjørk")+" · "+key(today())); }
+  var c=PCOL[L.color%PCOL.length];
+  doc.setFillColor(c[0],c[1],c[2]);
+  doc.roundedRect(PM, y-11, 5, 15, 2.5, 2.5, "F");
+  doc.setFont("helvetica","bold"); doc.setFontSize(14);
+  doc.setTextColor(INK[0],INK[1],INK[2]);
+  doc.text(plain(L.name), PM+15, y);
+  return y+22;
+}
+function pdfList(doc, L, y){
+  var d=today(), maxw=PW-PM*2-34-95;
+  y=listTitle(doc,L,y);
+  if(!L.items.length){
+    doc.setFont("helvetica","italic"); doc.setFontSize(10);
+    doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
+    doc.text(plain(t("emptyTitle")), PM+22, y+2); return y+26;
+  }
+  L.items.forEach(function(it){
+    var lines=doc.splitTextToSize(plain(it.text), maxw), h=Math.max(24, lines.length*13+11);
+    if(y+h>PH-56){ doc.addPage(); y=pdfHead(doc, plain(L.name)); y=listTitle(doc,L,y); }
+    doc.setDrawColor(RULE[0],RULE[1],RULE[2]); doc.setLineWidth(.7);
+    doc.line(PM, y+h-8, PW-PM, y+h-8);
+    pdfBox(doc, PM+3, y+5, 13, isDone(it,d));
+    doc.setFont("helvetica","normal"); doc.setFontSize(11);
+    doc.setTextColor(INK[0],INK[1],INK[2]);
+    doc.text(lines, PM+26, y+4);
+    var r=repLabel(it);
+    if(r){
+      doc.setFontSize(8.5); doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
+      doc.text(plain(r), PW-PM-2, y+4, {align:"right"});
+    }
+    y+=h;
+  });
+  return y+16;
+}
+function pdfWeek(doc, L, y){
+  var ws=weekStart(today()), ds=T[S.lang]?T[S.lang].days:T.en.days;
+  var rep=L.items.filter(function(it){ return it.repeat!=="none"; });
+  var namew=210, cw=(PW-PM*2-namew)/7, rowh=26;
+  y=listTitle(doc,L,y);
+  function head(yy){
+    doc.setFont("helvetica","bold"); doc.setFontSize(8.5);
+    doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
+    for(var i=0;i<7;i++){
+      var day=new Date(ws); day.setDate(ws.getDate()+i);
+      doc.text(ds[i]+" "+day.getDate(), PM+namew+cw*i+cw/2, yy, {align:"center"});
+    }
+    doc.setDrawColor(RULE[0],RULE[1],RULE[2]); doc.setLineWidth(1.4);
+    doc.line(PM, yy+6, PW-PM, yy+6);
+    return yy+6;
+  }
+  y=head(y);
+  rep.forEach(function(it,n){
+    if(y+rowh>PH-56){ doc.addPage(); y=pdfHead(doc, plain(L.name)); y=listTitle(doc,L,y); y=head(y); }
+    if(n%2===0){ doc.setFillColor(246,248,243); doc.rect(PM, y, PW-PM*2, rowh, "F"); }
+    doc.setFont("helvetica","normal"); doc.setFontSize(10);
+    doc.setTextColor(INK[0],INK[1],INK[2]);
+    doc.text(doc.splitTextToSize(plain(it.text), namew-14)[0], PM+6, y+17);
+    for(var i=0;i<7;i++){
+      var day=new Date(ws); day.setDate(ws.getDate()+i);
+      if(!isDue(it,day)) continue;
+      pdfBox(doc, PM+namew+cw*i+cw/2-6.5, y+18, 13, isDone(it,day));
+    }
+    y+=rowh;
+  });
+  if(!rep.length){
+    doc.setFont("helvetica","italic"); doc.setFontSize(10);
+    doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
+    doc.text(plain(t("noRepeat")), PM+6, y+16); y+=26;
+  }
+  return y+16;
+}
+function makePdf(mode){
+  var J = window.jspdf && window.jspdf.jsPDF;
+  if(!J){ toast(t("pdfMissing")); setTimeout(function(){ window.print(); }, 900); return; }
+  var doc=new J({unit:"pt", format:"a4"});
+  var L=activeList(), stamp2=key(today()), name;
+  if(mode==="all"){
+    var y=pdfHead(doc, plain(S.name||"Bjørk")+" · "+stamp2);
+    S.lists.forEach(function(x){ y=pdfList(doc, x, y); });
+    name="Bjorkliste-alle-"+stamp2+".pdf";
+  } else if(mode==="week"){
+    var ws=weekStart(today());
+    var y2=pdfHead(doc, plain(t("week"))+" · "+key(ws));
+    pdfWeek(doc, L, y2);
+    name="Bjorkliste-"+slug(L.name)+"-uge-"+key(ws)+".pdf";
+  } else {
+    var y3=pdfHead(doc, plain(S.name||"Bjørk")+" · "+stamp2);
+    pdfList(doc, L, y3);
+    name="Bjorkliste-"+slug(L.name)+"-"+stamp2+".pdf";
+  }
+  pdfFoot(doc);
+  doc.save(name);
+  closeSheet(); toast(t("printed"));
+}
+function sheetPdf(){
+  openSheet("📄 "+t("pdf"),
+    '<div class="sheetfoot"><button class="btn primary" data-pdf="this">'+t("pdfThis")+'</button></div>'+
+    '<div class="sheetfoot"><button class="btn" data-pdf="week">'+t("pdfWeek")+'</button>'+
+    '<button class="btn" data-pdf="all">'+t("pdfAll")+'</button></div>'+
+    '<p class="note" style="margin-top:14px">'+t("pdfNote")+'</p>'+
+    '<div class="sheetfoot"><button class="btn" data-close>'+t("cancel")+'</button></div>');
+  $("#sheetBody").addEventListener("click", function(e){
+    var b=e.target.closest("[data-pdf]"); if(!b) return;
+    makePdf(b.getAttribute("data-pdf"));
+  });
+}
+
 function sheetSync(){
   var body='<div data-syncsheet></div>';
   if(!fbOn()){
@@ -1235,7 +1420,7 @@ $("#rail").addEventListener("click", function(e){
   render();
 });
 $("#btnSettings").addEventListener("click", sheetSettings);
-$("#btnPrint").addEventListener("click", function(){ window.print(); });
+$("#btnPrint").addEventListener("click", sheetPdf);
 
 /* installable on the phone home screen, still one single file */
 try{
