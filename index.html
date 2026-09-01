@@ -812,8 +812,8 @@ function sheetSettings(){
       '<button class="opt" data-snd="1" aria-pressed="'+(!!S.sound)+'">'+t("on")+'</button>'+
       '<button class="opt" data-snd="0" aria-pressed="'+(!S.sound)+'">'+t("off")+'</button></div></div>'+
     '<div class="field"><span>'+t("theme")+'</span><div class="opts">'+
-      '<button class="opt" data-theme="day" aria-pressed="'+(S.theme==="day")+'">☀️ '+t("day")+'</button>'+
-      '<button class="opt" data-theme="dusk" aria-pressed="'+(S.theme==="dusk")+'">🌙 '+t("dusk")+'</button></div></div>'+
+      '<button class="opt" data-look="day" aria-pressed="'+(S.theme==="day")+'">☀️ '+t("day")+'</button>'+
+      '<button class="opt" data-look="dusk" aria-pressed="'+(S.theme==="dusk")+'">🌙 '+t("dusk")+'</button></div></div>'+
     '<div class="sheetfoot"><button class="btn" id="sSync">☁️ '+t("sync")+'</button></div>'+
     '<div class="sheetfoot"><button class="btn" id="sExport">⬇️ '+t("export")+'</button>'+
       '<button class="btn" id="sImport">⬆️ '+t("import")+'</button></div>'+
@@ -825,10 +825,11 @@ function sheetSettings(){
   $("#sName").addEventListener("input", function(){ S.name=this.value; touchPrefs(); save(); });
   b.addEventListener("click", function(e){
     var el;
+    if(!e.target.closest("#sheetBody")) return;
     if((el=e.target.closest("[data-lang]"))){ S.lang=el.getAttribute("data-lang"); touchPrefs(); render(); sheetSettings(); return; }
     if((el=e.target.closest("[data-big]"))){ S.big=el.getAttribute("data-big")==="1"; touchPrefs(); render(); sheetSettings(); return; }
     if((el=e.target.closest("[data-snd]"))){ S.sound=el.getAttribute("data-snd")==="1"; if(S.sound) chime(true); render(); sheetSettings(); return; }
-    if((el=e.target.closest("[data-theme]"))){ S.theme=el.getAttribute("data-theme"); touchPrefs(); render(); sheetSettings(); return; }
+    if((el=e.target.closest("[data-look]"))){ S.theme=el.getAttribute("data-look"); touchPrefs(); render(); sheetSettings(); return; }
     if(e.target.closest("#sExport")){
       var blob=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});
       var a=document.createElement("a"); a.href=URL.createObjectURL(blob);
