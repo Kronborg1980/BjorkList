@@ -11,6 +11,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<!-- Firebase is optional: without it (or without a config below) the app still works on its own -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <style>
 /* ---------- tokens ---------- */
 :root{
@@ -88,6 +92,20 @@ header.top{display:flex; align-items:center; gap:12px; padding:20px 0 10px}
   background:var(--card); border:1px solid var(--line); box-shadow:var(--shadow); font-size:19px;
 }
 .iconbtn:active{transform:translateY(1px)}
+#btnSync{position:relative}
+#btnSync::after{content:""; position:absolute; right:6px; bottom:6px; width:9px; height:9px;
+  border-radius:50%; background:var(--bark-soft); border:2px solid var(--card)}
+#btnSync[data-state="on"]::after{background:var(--leaf)}
+#btnSync[data-state="busy"]::after{background:var(--sun)}
+#btnSync[data-state="err"]::after{background:var(--berry)}
+.code{font-family:var(--f-dis); font-size:30px; font-weight:700; letter-spacing:.16em;
+  text-align:center; padding:14px; background:var(--paper); border:2px dashed var(--line);
+  border-radius:var(--r-md); margin-bottom:12px; user-select:all; word-break:break-all}
+.note{color:var(--bark-soft); font-weight:600; font-size:14px; margin:0 0 14px}
+.err{color:var(--berry); font-weight:700; font-size:14px; margin:0 0 12px; min-height:1px}
+.field input[type=password], .field input[type=email]{width:100%; padding:12px 13px; border-radius:13px;
+  border:2px solid var(--line); background:var(--paper); outline:none; font-weight:700}
+.field input[type=password]:focus, .field input[type=email]:focus{border-color:var(--leaf)}
 
 /* view switch */
 .views{display:flex; gap:6px; background:var(--card); border:1px solid var(--line);
@@ -274,6 +292,7 @@ body.big .addbox input{font-size:20px}
   <header class="top">
     <div class="brand"><span class="bark" aria-hidden="true"></span><h1>Bjørkliste</h1></div>
     <div class="stars" id="stars" title=""><span>⭐</span><span id="starCount">0</span></div>
+    <button class="iconbtn" id="btnSync" data-state="off" title="Sync">☁️</button>
     <button class="iconbtn" id="btnPrint" title="Print">🖨️</button>
     <button class="iconbtn" id="btnSettings" title="Settings">⚙️</button>
   </header>
@@ -323,7 +342,15 @@ var T = {
     tplMorning:"Morgenrutine", tplClean:"Rengøring", tplShop:"Indkøb", tplWork:"Arbejdsuge",
     completed:"Klaret", oneOff:"Enkelte opgaver", noRepeat:"Ingen gentagne punkter i denne liste endnu.",
     days:["Man","Tir","Ons","Tor","Fre","Lør","Søn"],
-    close:"Luk", editItem:"Rediger punkt", moveHint:"Træk i ⠿ for at flytte"
+    close:"Luk", editItem:"Rediger punkt", moveHint:"Træk i ⠿ for at flytte",
+    sync:"Deling", signIn:"Log ind", signUp:"Opret bruger", signOut:"Log ud",
+    email:"E-mail", password:"Kodeord", household:"Jeres fælles kode",
+    householdHelp:"Del koden med Bjørk. Når hun skriver den ind på sin telefon, ser I de samme lister.",
+    joinCode:"Skriv en kode for at være med", join:"Vær med", copy:"Kopiér", copied:"Kopieret",
+    syncOn:"Listerne deles", syncOff:"Kun på denne enhed",
+    notSetUp:"Deling er ikke sat op endnu",
+    setUpHelp:"Åbn filen og indsæt jeres Firebase-oplysninger øverst i FB_CONFIG. Så virker knappen.",
+    signedInAs:"Logget ind som", pwHint:"Mindst 6 tegn"
   },
   en:{
     today:"Today", list:"List", week:"Week",
@@ -342,7 +369,15 @@ var T = {
     tplMorning:"Morning routine", tplClean:"Cleaning", tplShop:"Shopping", tplWork:"Work week",
     completed:"Done", oneOff:"One-time tasks", noRepeat:"No repeating items in this list yet.",
     days:["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
-    close:"Close", editItem:"Edit item", moveHint:"Drag ⠿ to move"
+    close:"Close", editItem:"Edit item", moveHint:"Drag ⠿ to move",
+    sync:"Sharing", signIn:"Sign in", signUp:"Create account", signOut:"Sign out",
+    email:"Email", password:"Password", household:"Your shared code",
+    householdHelp:"Give the code to Bjørk. When she types it on her phone, you both see the same lists.",
+    joinCode:"Type a code to join", join:"Join", copy:"Copy", copied:"Copied",
+    syncOn:"Lists are shared", syncOff:"This device only",
+    notSetUp:"Sharing isn't set up yet",
+    setUpHelp:"Open the file and paste your Firebase details into FB_CONFIG at the top. Then this button works.",
+    signedInAs:"Signed in as", pwHint:"At least 6 characters"
   }
 };
 function t(k){ var d=T[S&&S.lang]||T.en; return (d[k]!==undefined?d[k]:(T.en[k]!==undefined?T.en[k]:k)); }
@@ -350,7 +385,10 @@ function t(k){ var d=T[S&&S.lang]||T.en; return (d[k]!==undefined?d[k]:(T.en[k]!
 /* ---------------- storage ---------------- */
 var KEY="bjorkliste.v1", mem={};
 function load(){ try{ var r=localStorage.getItem(KEY); return r?JSON.parse(r):null; }catch(e){ return mem.d||null; } }
-function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){ mem.d=S; } }
+function save(){
+  try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){ mem.d=S; }
+  if(typeof syncPush==="function") syncPush();
+}
 
 /* ---------------- helpers ---------------- */
 var COLORS=["#4F8B4A","#5B8FB0","#C2453C","#E7B14A","#8A76C4","#4FA79B"];
@@ -390,17 +428,27 @@ function seed(){
     return { id:uid(), name:l.n, emoji:l.e, color:l.c, items:l.items.map(function(it){
       return mkItem(it[0], it[1], it[2], it[3]); }) };
   });
-  return { v:1, name:"Bjørk", lang:lang, theme:"day", sound:true, big:false, stars:0,
-           view:"today", active:lists[0].id, lists:lists };
+  lists.forEach(function(l){ l.ts=Date.now(); });
+  return { v:2, name:"Bjørk", lang:lang, theme:"day", sound:true, big:false, stars:0,
+           view:"today", active:lists[0].id, lists:lists, tomb:{}, prefTs:Date.now() };
 }
 function mkItem(text, emoji, repeat, days){
   return { id:uid(), text:text, emoji:emoji||"✅", repeat:repeat||"none",
-           days:days||[0,1,2,3,4,5,6], dom:1, done:false, hist:{} };
+           days:days||[0,1,2,3,4,5,6], dom:1, done:false, hist:{}, ts:Date.now() };
 }
+/* every change carries the moment it happened, so two phones can be merged safely */
+function stamp(o){ if(o) o.ts=Date.now(); return o; }
+function bury(id){ S.tomb=S.tomb||{}; S.tomb[id]=Date.now(); }
+function touchPrefs(){ S.prefTs=Date.now(); }
 
 var S = load() || seed();
 if(!S.lists || !S.lists.length){ S = seed(); }
 if(!S.lists.some(function(l){ return l.id===S.active; })) S.active=S.lists[0].id;
+if(!S.v || S.v<2){
+  S.v=2; S.tomb=S.tomb||{}; S.prefTs=S.prefTs||Date.now();
+  S.lists.forEach(function(L){ L.ts=L.ts||Date.now();
+    L.items.forEach(function(it){ it.ts=it.ts||Date.now(); }); });
+}
 
 function activeList(){ return S.lists.filter(function(l){return l.id===S.active;})[0] || S.lists[0]; }
 function findItem(id){
@@ -423,6 +471,7 @@ function setDone(it, d, val){
   var was = isDone(it,d);
   if(it.repeat==="none"){ it.done=!!val; }
   else { if(val) it.hist[key(d)]=1; else delete it.hist[key(d)]; }
+  stamp(it);
   if(val && !was) S.stars++;
   if(!val && was) S.stars=Math.max(0,S.stars-1);
 }
@@ -674,14 +723,14 @@ function sheetRepeat(id){
       Array.prototype.forEach.call(b.querySelectorAll("[data-rep]"), function(x){
         x.setAttribute("aria-pressed", x.getAttribute("data-rep")===it.repeat); });
       $("#dayPick").hidden = it.repeat!=="weekly";
-      save();
+      stamp(it); save();
     }
     if(dd){
       var i=+dd.getAttribute("data-day"), p=it.days.indexOf(i);
       if(p>-1) it.days.splice(p,1); else it.days.push(i);
       it.days.sort();
       dd.setAttribute("aria-pressed", it.days.indexOf(i)>-1);
-      save();
+      stamp(it); save();
     }
     if(e.target.closest("[data-done]")){ closeSheet(); render(); }
   });
@@ -693,7 +742,7 @@ function sheetEmoji(id){
     return '<button data-e="'+e+'">'+e+'</button>'; }).join("")+'</div>');
   $("#sheetBody").addEventListener("click", function(e){
     var b=e.target.closest("[data-e]"); if(!b) return;
-    f.item.emoji=b.getAttribute("data-e"); closeSheet(); render();
+    f.item.emoji=b.getAttribute("data-e"); stamp(f.item); closeSheet(); render();
   });
 }
 
@@ -723,17 +772,18 @@ function sheetList(L){
         x.setAttribute("aria-pressed", +x.getAttribute("data-c")===pickC); }); }
     if(e.target.closest("#lSave")){
       var nm=$("#lName").value.trim();
-      cur.name = nm || t("newList"); cur.emoji=pickE; cur.color=pickC;
+      cur.name = nm || t("newList"); cur.emoji=pickE; cur.color=pickC; stamp(cur);
       if(isNew){ S.lists.push(cur); S.active=cur.id; S.view="list"; }
       closeSheet(); render();
     }
     if(e.target.closest("#lDel")){
       var i=S.lists.indexOf(cur), backup={l:cur,i:i};
-      S.lists.splice(i,1);
+      bury(cur.id); S.lists.splice(i,1);
       if(!S.lists.length) S.lists.push({id:uid(),name:t("newList"),emoji:"📋",color:0,items:[]});
       S.active=S.lists[Math.max(0,i-1)].id;
       closeSheet(); render();
       toast(t("listDeleted"), t("undo"), function(){
+        delete S.tomb[backup.l.id]; stamp(backup.l);
         S.lists.splice(backup.i,0,backup.l); S.active=backup.l.id; render(); });
     }
   });
@@ -754,6 +804,7 @@ function sheetSettings(){
     '<div class="field"><span>'+t("theme")+'</span><div class="opts">'+
       '<button class="opt" data-theme="day" aria-pressed="'+(S.theme==="day")+'">☀️ '+t("day")+'</button>'+
       '<button class="opt" data-theme="dusk" aria-pressed="'+(S.theme==="dusk")+'">🌙 '+t("dusk")+'</button></div></div>'+
+    '<div class="sheetfoot"><button class="btn" id="sSync">☁️ '+t("sync")+'</button></div>'+
     '<div class="sheetfoot"><button class="btn" id="sExport">⬇️ '+t("export")+'</button>'+
       '<button class="btn" id="sImport">⬆️ '+t("import")+'</button></div>'+
     '<div class="sheetfoot"><button class="btn danger" id="sReset">'+t("reset")+'</button>'+
@@ -761,19 +812,20 @@ function sheetSettings(){
     '<input type="file" id="sFile" accept="application/json" hidden>';
   openSheet(t("settings"), body);
   var b=$("#sheetBody");
-  $("#sName").addEventListener("input", function(){ S.name=this.value; save(); });
+  $("#sName").addEventListener("input", function(){ S.name=this.value; touchPrefs(); save(); });
   b.addEventListener("click", function(e){
     var el;
-    if((el=e.target.closest("[data-lang]"))){ S.lang=el.getAttribute("data-lang"); render(); sheetSettings(); return; }
-    if((el=e.target.closest("[data-big]"))){ S.big=el.getAttribute("data-big")==="1"; render(); sheetSettings(); return; }
+    if((el=e.target.closest("[data-lang]"))){ S.lang=el.getAttribute("data-lang"); touchPrefs(); render(); sheetSettings(); return; }
+    if((el=e.target.closest("[data-big]"))){ S.big=el.getAttribute("data-big")==="1"; touchPrefs(); render(); sheetSettings(); return; }
     if((el=e.target.closest("[data-snd]"))){ S.sound=el.getAttribute("data-snd")==="1"; if(S.sound) chime(true); render(); sheetSettings(); return; }
-    if((el=e.target.closest("[data-theme]"))){ S.theme=el.getAttribute("data-theme"); render(); sheetSettings(); return; }
+    if((el=e.target.closest("[data-theme]"))){ S.theme=el.getAttribute("data-theme"); touchPrefs(); render(); sheetSettings(); return; }
     if(e.target.closest("#sExport")){
       var blob=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});
       var a=document.createElement("a"); a.href=URL.createObjectURL(blob);
       a.download="bjorkliste-"+key(today())+".json"; a.click();
       setTimeout(function(){ URL.revokeObjectURL(a.href); },2000); return;
     }
+    if(e.target.closest("#sSync")){ sheetSync(); return; }
     if(e.target.closest("#sImport")){ $("#sFile").click(); return; }
     if(e.target.closest("#sReset")){
       if(confirm(t("resetAsk"))){ S=seed(); closeSheet(); render(); }
@@ -804,6 +856,7 @@ function applyTemplate(k){
   var tpl=TPL[k]; if(!tpl) return;
   var rows=tpl[S.lang]||tpl.en, L=activeList();
   rows.forEach(function(r){ L.items.push(mkItem(r[0], r[1], tpl.rep, [0,1,2,3,4])); });
+  stamp(L);
   render(); chime(true);
 }
 
@@ -852,8 +905,10 @@ main.addEventListener("click", function(e){
   if(e.target.closest("[data-act='repeat']")){ sheetRepeat(id); return; }
   if(e.target.closest("[data-act='del']")){
     var backup={list:fo.list, item:fo.item, idx:fo.idx};
+    bury(fo.item.id); stamp(fo.list);
     fo.list.items.splice(fo.idx,1); render(); blip(300,.08);
     toast(t("deleted"), t("undo"), function(){
+      delete S.tomb[backup.item.id]; stamp(backup.item); stamp(backup.list);
       backup.list.items.splice(backup.idx,0,backup.item); render(); });
     return;
   }
@@ -865,7 +920,7 @@ main.addEventListener("focusout", function(e){
   var row=el.closest(".row"), f=findItem(row.getAttribute("data-id")); if(!f) return;
   var v=el.textContent.replace(/\s+/g," ").trim();
   if(!v){ el.textContent=f.item.text; return; }
-  if(v!==f.item.text){ f.item.text=v; save(); renderRail(); }
+  if(v!==f.item.text){ f.item.text=v; stamp(f.item); save(); renderRail(); }
 });
 main.addEventListener("keydown", function(e){
   var el=e.target.closest("[data-act='text']");
@@ -880,7 +935,7 @@ function addFromInput(){
   var m=v.match(/^(\p{Extended_Pictographic}\uFE0F?)\s*(.+)$/u);
   var emoji="✅", text=v;
   if(m){ emoji=m[1]; text=m[2]; }
-  L.items.push(mkItem(text, emoji, "none"));
+  L.items.push(mkItem(text, emoji, "none")); stamp(L);
   inp.value=""; blip(760,.09); render();
   var ni=$("#addInput"); if(ni) ni.focus();
 }
@@ -921,10 +976,212 @@ document.addEventListener("pointerup", function(){
   L.items.sort(function(a,b){
     var ia=order.indexOf(a.id), ib=order.indexOf(b.id);
     if(ia<0||ib<0) return 0; return ia-ib; });
-  drag=null; save();
+  stamp(L); drag=null; save();
 });
 
+/* ================= cloud sharing (optional) =================
+   Paste your Firebase web-app details here. Leave apiKey empty and the app
+   simply stays offline on this device. Nothing here is secret — the database
+   rules do the protecting. */
+var FB_CONFIG = {
+  apiKey: "",
+  authDomain: "",
+  databaseURL: "",
+  projectId: "",
+  appId: ""
+};
+
+var SY={ready:false,user:null,hid:null,ref:null,cb:null,state:"off",err:"",timer:null,last:""};
+var DEVICE=(function(){
+  try{ var d=localStorage.getItem("bjorkliste.device");
+    if(!d){ d=uid(); localStorage.setItem("bjorkliste.device",d); } return d;
+  }catch(e){ return uid(); }
+})();
+function fbOn(){ return !!(window.firebase && FB_CONFIG.apiKey && FB_CONFIG.databaseURL); }
+function newCode(){
+  var A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789", s="";
+  for(var i=0;i<8;i++) s+=A[(Math.random()*A.length)|0];
+  return s;
+}
+function setState(s,err){ SY.state=s; SY.err=err||""; var b=$("#btnSync");
+  if(b){ b.setAttribute("data-state",s); b.title = s==="on"?t("syncOn"):(s==="err"?SY.err:t("syncOff")); } }
+
+function fbInit(){
+  if(SY.ready || !fbOn()) return SY.ready;
+  try{
+    firebase.initializeApp(FB_CONFIG);
+    firebase.auth().onAuthStateChanged(function(u){
+      SY.user=u||null;
+      if(u) attach(); else { detach(); setState("off"); }
+      if(!$("#sheet").hidden && $("#sheetBody").querySelector("[data-syncsheet]")) sheetSync();
+    });
+    SY.ready=true;
+  }catch(e){ setState("err", e.message); }
+  return SY.ready;
+}
+
+function attach(hidWanted){
+  var db=firebase.database(), u=SY.user.uid;
+  setState("busy");
+  var localHid=null; try{ localHid=localStorage.getItem("bjorkliste.hid"); }catch(e){}
+  var p = hidWanted ? Promise.resolve(hidWanted)
+        : db.ref("users/"+u+"/hid").once("value").then(function(s){ return s.val()||localHid||newCode(); });
+  p.then(function(hid){
+    var up={};
+    up["households/"+hid+"/members/"+u] = SY.user.email || "member";
+    up["users/"+u+"/hid"] = hid;
+    return db.ref().update(up).then(function(){ return hid; });
+  }).then(function(hid){
+    detach();
+    SY.hid=hid; try{ localStorage.setItem("bjorkliste.hid",hid); }catch(e){}
+    SY.ref=db.ref("households/"+hid+"/state");
+    SY.cb=SY.ref.on("value", onRemote, function(e){ setState("err", e.message); });
+    setState("on");
+  }).catch(function(e){ setState("err", e.message||String(e)); });
+}
+function detach(){ if(SY.ref && SY.cb){ SY.ref.off("value", SY.cb); } SY.ref=null; SY.cb=null; }
+
+function exportDoc(s){
+  var cut=Date.now()-30*864e5, tomb={};
+  for(var k in (s.tomb||{})) if(s.tomb[k]>cut) tomb[k]=s.tomb[k];
+  s.tomb=tomb;
+  return { v:2, name:s.name, lang:s.lang, theme:s.theme, sound:s.sound, big:s.big,
+           prefTs:s.prefTs||0, stars:s.stars||0, tomb:tomb, lists:s.lists };
+}
+
+function mergeDocs(local, remote){
+  var out={v:2, view:local.view, active:local.active, hidSeen:local.hidSeen};
+  var pref = (remote.prefTs||0) > (local.prefTs||0) ? remote : local;
+  ["name","lang","theme","sound","big"].forEach(function(k){ out[k]=pref[k]; });
+  out.prefTs=Math.max(local.prefTs||0, remote.prefTs||0);
+  out.stars=Math.max(local.stars||0, remote.stars||0);
+  var tomb={};
+  [local.tomb||{}, remote.tomb||{}].forEach(function(m){
+    for(var k in m){ if(!tomb[k] || m[k]>tomb[k]) tomb[k]=m[k]; } });
+  out.tomb=tomb;
+  var la={}, ra={}, ids=[];
+  (local.lists||[]).forEach(function(L){ la[L.id]=L; ids.push(L.id); });
+  (remote.lists||[]).forEach(function(L){ ra[L.id]=L; if(ids.indexOf(L.id)<0) ids.push(L.id); });
+  out.lists=[];
+  ids.forEach(function(id){
+    var A=la[id], B=ra[id];
+    var lts=Math.max(A?A.ts||0:0, B?B.ts||0:0);
+    if(tomb[id] && lts < tomb[id]) return;                       /* deleted elsewhere */
+    var base = !A ? B : (!B ? A : ((B.ts||0)>(A.ts||0) ? B : A));
+    var L={id:id, name:base.name, emoji:base.emoji, color:base.color, ts:lts, items:[]};
+    var ia={}, ib={}, iids=[];
+    ((A&&A.items)||[]).forEach(function(it){ ia[it.id]=it; iids.push(it.id); });
+    ((B&&B.items)||[]).forEach(function(it){ ib[it.id]=it; if(iids.indexOf(it.id)<0) iids.push(it.id); });
+    var ord=((base.items)||[]).map(function(it){ return it.id; });   /* order from the newer side */
+    iids.sort(function(x,y){
+      var px=ord.indexOf(x), py=ord.indexOf(y);
+      if(px<0) px=1e6; if(py<0) py=1e6; return px-py; });
+    iids.forEach(function(iid){
+      var x=ia[iid], y=ib[iid], its=Math.max(x?x.ts||0:0, y?y.ts||0:0);
+      if(tomb[iid] && its < tomb[iid]) return;
+      L.items.push(!x ? y : (!y ? x : (((y.ts||0)>(x.ts||0)) ? y : x)));
+    });
+    out.lists.push(L);
+  });
+  if(!out.lists.length) out.lists=local.lists.slice();
+  if(!out.lists.some(function(L){ return L.id===out.active; })) out.active=out.lists[0].id;
+  return out;
+}
+
+function onRemote(snap){
+  var v=snap.val();
+  if(!v || !v.doc){ SY.last=""; syncPush(true); return; }
+  var remote; try{ remote=JSON.parse(v.doc); }catch(e){ return; }
+  if(S.hidSeen!==SY.hid){
+    /* first time this device joins this household: take what is already there,
+       keeping a copy of whatever was on the device before */
+    try{ localStorage.setItem("bjorkliste.beforeSync", JSON.stringify(S)); }catch(e){}
+    var view=S.view;
+    S=remote; S.view=view; S.hidSeen=SY.hid;
+    if(!S.lists.some(function(L){ return L.id===S.active; })) S.active=S.lists[0].id;
+  } else {
+    if(v.by===DEVICE) return;
+    S=mergeDocs(S, remote);
+  }
+  SY.last=JSON.stringify(exportDoc(S));
+  try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){ mem.d=S; }
+  render();
+  setState("on");
+}
+
+function syncPush(now){
+  if(!SY.ref) return;
+  clearTimeout(SY.timer);
+  SY.timer=setTimeout(function(){
+    if(!SY.ref) return;
+    var doc=exportDoc(S), str=JSON.stringify(doc);
+    if(str===SY.last) return;                 /* nothing actually changed */
+    SY.last=str; S.hidSeen=SY.hid;
+    SY.ref.set({doc:str, by:DEVICE, at:Date.now()})
+      .then(function(){ setState("on"); })
+      .catch(function(e){ setState("err", e.message); });
+  }, now?60:800);
+}
+
+function sheetSync(){
+  var body='<div data-syncsheet></div>';
+  if(!fbOn()){
+    body+='<p class="note">'+t("notSetUp")+'</p><p class="note">'+t("setUpHelp")+'</p>'+
+      '<div class="sheetfoot"><button class="btn primary" data-close>'+t("close")+'</button></div>';
+    openSheet("☁️ "+t("sync"), body); return;
+  }
+  fbInit();
+  if(!SY.user){
+    body+='<label class="field"><span>'+t("email")+'</span><input type="email" id="syEmail" autocomplete="username"></label>'+
+      '<label class="field"><span>'+t("password")+'</span><input type="password" id="syPass" autocomplete="current-password">'+
+      '<p class="note" style="margin:6px 0 0">'+t("pwHint")+'</p></label>'+
+      '<p class="err" id="syErr">'+esc(SY.err)+'</p>'+
+      '<div class="sheetfoot"><button class="btn primary" id="syIn">'+t("signIn")+'</button>'+
+      '<button class="btn" id="syUp">'+t("signUp")+'</button></div>'+
+      '<div class="sheetfoot"><button class="btn" data-close>'+t("cancel")+'</button></div>';
+  } else {
+    body+='<p class="note">'+t("signedInAs")+" "+esc(SY.user.email||"")+'</p>'+
+      '<div class="field"><span>'+t("household")+'</span><div class="code" id="syCode">'+esc(SY.hid||"…")+'</div>'+
+      '<div class="sheetfoot" style="margin-bottom:8px"><button class="btn" id="syCopy">'+t("copy")+'</button></div>'+
+      '<p class="note">'+t("householdHelp")+'</p></div>'+
+      '<label class="field"><span>'+t("joinCode")+'</span><input type="text" id="syJoin" placeholder="ABCD2345"></label>'+
+      '<p class="err" id="syErr">'+esc(SY.err)+'</p>'+
+      '<div class="sheetfoot"><button class="btn primary" id="syJoinBtn">'+t("join")+'</button>'+
+      '<button class="btn" id="syOut">'+t("signOut")+'</button></div>'+
+      '<div class="sheetfoot"><button class="btn" data-close>'+t("close")+'</button></div>';
+  }
+  openSheet("☁️ "+t("sync"), body);
+  var b=$("#sheetBody");
+  function fail(e){ var el=$("#syErr"); SY.err=e.message||String(e); if(el) el.textContent=SY.err; setState("err",SY.err); }
+  b.addEventListener("click", function(e){
+    if(e.target.closest("#syIn")){
+      firebase.auth().signInWithEmailAndPassword($("#syEmail").value.trim(), $("#syPass").value)
+        .then(function(){ closeSheet(); }).catch(fail); return;
+    }
+    if(e.target.closest("#syUp")){
+      firebase.auth().createUserWithEmailAndPassword($("#syEmail").value.trim(), $("#syPass").value)
+        .then(function(){ closeSheet(); }).catch(fail); return;
+    }
+    if(e.target.closest("#syCopy")){
+      var c=SY.hid||"";
+      if(navigator.clipboard) navigator.clipboard.writeText(c);
+      toast(t("copied")); return;
+    }
+    if(e.target.closest("#syJoinBtn")){
+      var code=$("#syJoin").value.trim().toUpperCase();
+      if(!code) return;
+      S.hidSeen=null; SY.last="";
+      attach(code); closeSheet(); return;
+    }
+    if(e.target.closest("#syOut")){
+      detach(); setState("off");
+      firebase.auth().signOut(); closeSheet(); return;
+    }
+  });
+}
+
 /* chrome */
+$("#btnSync").addEventListener("click", sheetSync);
 $("#views").addEventListener("click", function(e){
   var b=e.target.closest("[data-view]"); if(!b) return;
   S.view=b.getAttribute("data-view"); render();
@@ -950,6 +1207,9 @@ try{
   link.href=URL.createObjectURL(new Blob([JSON.stringify(mf)],{type:"application/manifest+json"}));
   document.head.appendChild(link);
 }catch(e){}
+
+setState("off");
+fbInit();
 
 /* new day: repeating items simply look undone again, and one-off finished
    items from earlier days get tidied out of Today automatically */
