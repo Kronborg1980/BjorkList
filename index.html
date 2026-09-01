@@ -98,10 +98,16 @@ header.top{display:flex; align-items:center; gap:12px; padding:20px 0 10px}
 #btnSync[data-state="on"]::after{background:var(--leaf)}
 #btnSync[data-state="busy"]::after{background:var(--sun)}
 #btnSync[data-state="err"]::after{background:var(--berry)}
-.code{font-family:var(--f-dis); font-size:30px; font-weight:700; letter-spacing:.16em;
-  text-align:center; padding:14px; background:var(--paper); border:2px dashed var(--line);
+.code{font-family:var(--f-dis); font-size:30px; font-weight:700; letter-spacing:.16em;  text-align:center; padding:14px; background:var(--paper); border:2px dashed var(--line);
   border-radius:var(--r-md); margin-bottom:12px; user-select:all; word-break:break-all}
 .note{color:var(--bark-soft); font-weight:600; font-size:14px; margin:0 0 14px}
+.gbtn{display:flex; align-items:center; justify-content:center; gap:11px; width:100%;
+  min-height:56px; padding:0 18px; border-radius:16px; font-weight:800; font-size:17px;
+  background:#fff; color:#1F1F1F; border:1px solid #DADCE0; box-shadow:var(--shadow); margin-bottom:12px}
+.gbtn svg{width:22px; height:22px; flex:none}
+.gbtn:active{transform:translateY(1px)}
+.linkbtn{display:block; width:100%; text-align:center; padding:10px; font-weight:700;
+  font-size:14.5px; color:var(--bark-soft); text-decoration:underline; text-underline-offset:3px}
 .err{color:var(--berry); font-weight:700; font-size:14px; margin:0 0 12px; min-height:1px}
 .field input[type=password], .field input[type=email]{width:100%; padding:12px 13px; border-radius:13px;
   border:2px solid var(--line); background:var(--paper); outline:none; font-weight:700}
@@ -350,7 +356,9 @@ var T = {
     syncOn:"Listerne deles", syncOff:"Kun på denne enhed",
     notSetUp:"Deling er ikke sat op endnu",
     setUpHelp:"Åbn filen og indsæt jeres Firebase-oplysninger øverst i FB_CONFIG. Så virker knappen.",
-    signedInAs:"Logget ind som", pwHint:"Mindst 6 tegn"
+    signedInAs:"Logget ind som", pwHint:"Mindst 6 tegn",
+    withGoogle:"Fortsæt med Google", orEmail:"Eller brug e-mail og kodeord",
+    hideEmail:"Skjul", popupBlocked:"Browseren blokerede vinduet — prøver på en anden måde …"
   },
   en:{
     today:"Today", list:"List", week:"Week",
@@ -377,7 +385,9 @@ var T = {
     syncOn:"Lists are shared", syncOff:"This device only",
     notSetUp:"Sharing isn't set up yet",
     setUpHelp:"Open the file and paste your Firebase details into FB_CONFIG at the top. Then this button works.",
-    signedInAs:"Signed in as", pwHint:"At least 6 characters"
+    signedInAs:"Signed in as", pwHint:"At least 6 characters",
+    withGoogle:"Continue with Google", orEmail:"Or use email and password",
+    hideEmail:"Hide", popupBlocked:"The browser blocked the window — trying another way …"
   }
 };
 function t(k){ var d=T[S&&S.lang]||T.en; return (d[k]!==undefined?d[k]:(T.en[k]!==undefined?T.en[k]:k)); }
@@ -1010,6 +1020,7 @@ function fbInit(){
   if(SY.ready || !fbOn()) return SY.ready;
   try{
     firebase.initializeApp(FB_CONFIG);
+    firebase.auth().getRedirectResult().catch(function(e){ setState("err", e.message); });
     firebase.auth().onAuthStateChanged(function(u){
       SY.user=u||null;
       if(u) attach(); else { detach(); setState("off"); }
@@ -1028,7 +1039,7 @@ function attach(hidWanted){
         : db.ref("users/"+u+"/hid").once("value").then(function(s){ return s.val()||localHid||newCode(); });
   p.then(function(hid){
     var up={};
-    up["households/"+hid+"/members/"+u] = SY.user.email || "member";
+    up["households/"+hid+"/members/"+u] = (SY.user.displayName||SY.user.email||"member").slice(0,110);
     up["users/"+u+"/hid"] = hid;
     return db.ref().update(up).then(function(){ return hid; });
   }).then(function(hid){
@@ -1123,6 +1134,22 @@ function syncPush(now){
   }, now?60:800);
 }
 
+var GLOGO='<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.2 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.2-.4-4.6H24v9.1h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.6 5.9c4.4-4.1 6.7-10.1 6.7-17.3z"/><path fill="#FBBC05" d="M10.4 28.7c-.5-1.4-.8-2.9-.8-4.7s.3-3.3.8-4.7l-7.8-6.1C.9 16.4 0 20.1 0 24s.9 7.6 2.6 10.8l7.8-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.8 2.3-8.3 2.3-6.3 0-11.7-3.7-13.6-9.8l-7.8 6.1C6.5 42.6 14.6 48 24 48z"/></svg>';
+
+function googleIn(fail){
+  var p=new firebase.auth.GoogleAuthProvider();
+  p.setCustomParameters({prompt:"select_account"});
+  setState("busy");
+  firebase.auth().signInWithPopup(p).then(function(){ closeSheet(); }).catch(function(e){
+    var c=e.code||"";
+    /* phones and installed web apps often refuse popups: fall back to a full-page sign-in */
+    if(c.indexOf("popup")>-1 || c.indexOf("cancelled-popup")>-1 || c.indexOf("operation-not-supported")>-1){
+      var el=$("#syErr"); if(el) el.textContent=t("popupBlocked");
+      firebase.auth().signInWithRedirect(p).catch(fail);
+    } else fail(e);
+  });
+}
+
 function sheetSync(){
   var body='<div data-syncsheet></div>';
   if(!fbOn()){
@@ -1132,15 +1159,18 @@ function sheetSync(){
   }
   fbInit();
   if(!SY.user){
-    body+='<label class="field"><span>'+t("email")+'</span><input type="email" id="syEmail" autocomplete="username"></label>'+
+    body+='<button class="gbtn" id="syGoogle">'+GLOGO+t("withGoogle")+'</button>'+
+      '<p class="err" id="syErr">'+esc(SY.err)+'</p>'+
+      '<button class="linkbtn" id="syToggle" aria-expanded="false">'+t("orEmail")+'</button>'+
+      '<div id="syMail" hidden>'+
+      '<label class="field" style="margin-top:14px"><span>'+t("email")+'</span><input type="email" id="syEmail" autocomplete="username"></label>'+
       '<label class="field"><span>'+t("password")+'</span><input type="password" id="syPass" autocomplete="current-password">'+
       '<p class="note" style="margin:6px 0 0">'+t("pwHint")+'</p></label>'+
-      '<p class="err" id="syErr">'+esc(SY.err)+'</p>'+
       '<div class="sheetfoot"><button class="btn primary" id="syIn">'+t("signIn")+'</button>'+
-      '<button class="btn" id="syUp">'+t("signUp")+'</button></div>'+
+      '<button class="btn" id="syUp">'+t("signUp")+'</button></div></div>'+
       '<div class="sheetfoot"><button class="btn" data-close>'+t("cancel")+'</button></div>';
   } else {
-    body+='<p class="note">'+t("signedInAs")+" "+esc(SY.user.email||"")+'</p>'+
+    body+='<p class="note">'+t("signedInAs")+" "+esc(SY.user.displayName||SY.user.email||"")+'</p>'+
       '<div class="field"><span>'+t("household")+'</span><div class="code" id="syCode">'+esc(SY.hid||"…")+'</div>'+
       '<div class="sheetfoot" style="margin-bottom:8px"><button class="btn" id="syCopy">'+t("copy")+'</button></div>'+
       '<p class="note">'+t("householdHelp")+'</p></div>'+
@@ -1154,6 +1184,14 @@ function sheetSync(){
   var b=$("#sheetBody");
   function fail(e){ var el=$("#syErr"); SY.err=e.message||String(e); if(el) el.textContent=SY.err; setState("err",SY.err); }
   b.addEventListener("click", function(e){
+    if(e.target.closest("#syGoogle")){ googleIn(fail); return; }
+    if(e.target.closest("#syToggle")){
+      var m=$("#syMail"), tg=$("#syToggle");
+      m.hidden=!m.hidden;
+      tg.setAttribute("aria-expanded", String(!m.hidden));
+      tg.textContent = m.hidden ? t("orEmail") : t("hideEmail");
+      return;
+    }
     if(e.target.closest("#syIn")){
       firebase.auth().signInWithEmailAndPassword($("#syEmail").value.trim(), $("#syPass").value)
         .then(function(){ closeSheet(); }).catch(fail); return;
