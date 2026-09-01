@@ -84,11 +84,6 @@ header.top{display:flex; align-items:center; gap:12px; padding:20px 0 10px}
   display:inline-block; width:10px; height:26px; border-radius:5px;
   background:var(--bark); opacity:.85; transform:rotate(-8deg);
 }
-.stars{
-  display:flex; align-items:center; gap:6px; font-weight:800; font-size:15px;
-  background:var(--card); border:1px solid var(--line); border-radius:999px;
-  padding:7px 13px; box-shadow:var(--shadow); white-space:nowrap;
-}
 .iconbtn{
   width:44px; height:44px; border-radius:14px; display:grid; place-items:center;
   background:var(--card); border:1px solid var(--line); box-shadow:var(--shadow); font-size:19px;
@@ -282,7 +277,6 @@ body.big .addbox input{font-size:20px}
 
 @media (max-width:520px){
   .wrap{padding:0 12px 130px}
-  .stars{padding:7px 10px; font-size:14px}
 }
 
 /* print: a clean paper checklist */
@@ -299,7 +293,6 @@ body.big .addbox input{font-size:20px}
 <div class="wrap">
   <header class="top">
     <div class="brand"><span class="bark" aria-hidden="true"></span><h1>Bjørkliste</h1></div>
-    <div class="stars" id="stars" title=""><span>⭐</span><span id="starCount">0</span></div>
     <button class="iconbtn" id="btnSync" data-state="off" title="Sync">☁️</button>
     <button class="iconbtn" id="btnPrint" title="Print">🖨️</button>
     <button class="iconbtn" id="btnSettings" title="Settings">⚙️</button>
@@ -346,7 +339,7 @@ var T = {
     theme:"Udseende", day:"Dag", dusk:"Aften", on:"Til", off:"Fra",
     export:"Gem fil", import:"Hent fil", reset:"Nulstil alt", resetAsk:"Slet alle lister og start forfra?",
     deleted:"Punktet er slettet", undo:"Fortryd", listDeleted:"Listen er slettet",
-    stars:"stjerner", emptyTitle:"Listen er tom", emptyText:"Skriv et punkt nedenfor, eller start med en skabelon.",
+    emptyTitle:"Listen er tom", emptyText:"Skriv et punkt nedenfor, eller start med en skabelon.",
     tplMorning:"Morgenrutine", tplClean:"Rengøring", tplShop:"Indkøb", tplWork:"Arbejdsuge",
     completed:"Klaret", oneOff:"Enkelte opgaver", noRepeat:"Ingen gentagne punkter i denne liste endnu.",
     days:["Man","Tir","Ons","Tor","Fre","Lør","Søn"],
@@ -378,7 +371,7 @@ var T = {
     theme:"Look", day:"Day", dusk:"Evening", on:"On", off:"Off",
     export:"Save file", import:"Open file", reset:"Reset everything", resetAsk:"Delete all lists and start over?",
     deleted:"Item deleted", undo:"Undo", listDeleted:"List deleted",
-    stars:"stars", emptyTitle:"This list is empty", emptyText:"Write an item below, or start from a template.",
+    emptyTitle:"This list is empty", emptyText:"Write an item below, or start from a template.",
     tplMorning:"Morning routine", tplClean:"Cleaning", tplShop:"Shopping", tplWork:"Work week",
     completed:"Done", oneOff:"One-time tasks", noRepeat:"No repeating items in this list yet.",
     days:["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
@@ -447,7 +440,7 @@ function seed(){
       return mkItem(it[0], it[1], it[2], it[3]); }) };
   });
   lists.forEach(function(l){ l.ts=Date.now(); });
-  return { v:2, name:"Bjørk", lang:lang, theme:"day", sound:true, big:false, stars:0,
+  return { v:2, name:"Bjørk", lang:lang, theme:"day", sound:true, big:false,
            view:"today", active:lists[0].id, lists:lists, tomb:{}, prefTs:Date.now() };
 }
 function mkItem(text, emoji, repeat, days){
@@ -490,8 +483,6 @@ function setDone(it, d, val){
   if(it.repeat==="none"){ it.done=!!val; }
   else { if(val) it.hist[key(d)]=1; else delete it.hist[key(d)]; }
   stamp(it);
-  if(val && !was) S.stars++;
-  if(!val && was) S.stars=Math.max(0,S.stars-1);
 }
 
 /* ---------------- sound + confetti ---------------- */
@@ -599,7 +590,7 @@ function renderToday(){
     h+='<div class="rows">'+open.map(function(p){
       return rowHTML(p[0], d, {listName:p[1].emoji+" "+p[1].name}); }).join("")+'</div>';
   } else if(b>0){
-    h+='<div class="card empty"><h3>'+t("allDone")+' 🎉</h3><p>'+t("stars")+": "+S.stars+'</p></div>';
+    h+='<div class="card empty"><h3>'+t("allDone")+' 🎉</h3></div>';
   }
   h+=addBoxHTML();
   if(done.length){
@@ -689,8 +680,6 @@ function render(){
   document.documentElement.setAttribute("data-theme", S.theme);
   document.documentElement.lang = S.lang;
   document.body.classList.toggle("big", !!S.big);
-  $("#starCount").textContent=S.stars;
-  $("#stars").title=t("stars");
   var vb=document.querySelectorAll("#views button");
   for(var i=0;i<vb.length;i++){
     vb[i].textContent = t(vb[i].getAttribute("data-view"));
@@ -898,7 +887,7 @@ main.addEventListener("click", function(e){
     var now=isDone(f.item,d);
     setDone(f.item,d,!now);
     cell.setAttribute("data-on", now?0:1); cell.setAttribute("aria-checked", !now);
-    $("#starCount").textContent=S.stars; chime(!now); save(); renderRail();
+    chime(!now); save(); renderRail();
     return;
   }
 
@@ -913,7 +902,6 @@ main.addEventListener("click", function(e){
     row.classList.toggle("done", !was);
     tick.setAttribute("aria-checked", String(!was));
     tick.classList.remove("pop"); void tick.offsetWidth; if(!was) tick.classList.add("pop");
-    $("#starCount").textContent=S.stars;
     var allDone = S.lists.every(function(L){ return L.items.every(function(it){
       return !isDue(it,d2) || isDone(it,d2); }); });
     setTimeout(function(){
@@ -1082,7 +1070,7 @@ function exportDoc(s){
   for(var k in (s.tomb||{})) if(s.tomb[k]>cut) tomb[k]=s.tomb[k];
   s.tomb=tomb;
   return { v:2, name:s.name, lang:s.lang, theme:s.theme, sound:s.sound, big:s.big,
-           prefTs:s.prefTs||0, stars:s.stars||0, tomb:tomb, lists:s.lists };
+           prefTs:s.prefTs||0, tomb:tomb, lists:s.lists };
 }
 
 function mergeDocs(local, remote){
@@ -1090,7 +1078,6 @@ function mergeDocs(local, remote){
   var pref = (remote.prefTs||0) > (local.prefTs||0) ? remote : local;
   ["name","lang","theme","sound","big"].forEach(function(k){ out[k]=pref[k]; });
   out.prefTs=Math.max(local.prefTs||0, remote.prefTs||0);
-  out.stars=Math.max(local.stars||0, remote.stars||0);
   var tomb={};
   [local.tomb||{}, remote.tomb||{}].forEach(function(m){
     for(var k in m){ if(!tomb[k] || m[k]>tomb[k]) tomb[k]=m[k]; } });
