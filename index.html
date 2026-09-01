@@ -994,11 +994,13 @@ document.addEventListener("pointerup", function(){
    simply stays offline on this device. Nothing here is secret — the database
    rules do the protecting. */
 var FB_CONFIG = {
-  apiKey: "",
-  authDomain: "",
-  databaseURL: "",
-  projectId: "",
-  appId: ""
+  apiKey: "AIzaSyDmUBI0x_IXyxiyH4GfltOjAyN7tB1IyzU",
+  authDomain: "bjorkliste.firebaseapp.com",
+  /* check this line against the Realtime Database page after you create it —
+     it must be the europe-west1 URL, not the US one */
+  databaseURL: "https://bjorkliste-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "bjorkliste",
+  appId: "1:831797241679:web:39e45b69a2ed36111b873a"
 };
 
 var SY={ready:false,user:null,hid:null,ref:null,cb:null,state:"off",err:"",timer:null,last:""};
