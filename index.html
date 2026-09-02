@@ -379,6 +379,10 @@ var T = {
     more:"Flere valg", moveUp:"Flyt op", moveDown:"Flyt ned",
     remind:"Påmindelse", noRemind:"Ingen påmindelse", ownTime:"Eget tidspunkt",
     calendar:"Læg i kalender", calendarAll:"Hele listen i kalenderen",
+    needTime:"Vælg først et tidspunkt", noTimes:"Ingen punkter på listen har et tidspunkt endnu",
+    gcal:"Føj til Google Kalender", icsAlt:"Anden kalender (.ics-fil)",
+    gcalNote:"Google Kalender åbner med det hele udfyldt — du trykker bare Gem.",
+    icsNote:"Til iPhone, Outlook og andre kalendere. Filen skal åbnes bagefter.",
     notifAsk:"Sig ja til beskeder, så siger appen til — men kun mens den er åben.",
     notifBlocked:"Beskeder er slået fra i browseren", calNote:"Kalenderen ringer også når appen er lukket.",
     remindNote:"Beskeder virker kun mens Bjørkliste er åben. Skal den ringe uanset hvad, så læg den i kalenderen.",
@@ -428,6 +432,10 @@ var T = {
     more:"More", moveUp:"Move up", moveDown:"Move down",
     remind:"Reminder", noRemind:"No reminder", ownTime:"Own time",
     calendar:"Add to calendar", calendarAll:"Whole list to calendar",
+    needTime:"Pick a time first", noTimes:"No items on this list have a time yet",
+    gcal:"Add to Google Calendar", icsAlt:"Other calendar (.ics file)",
+    gcalNote:"Google Calendar opens with everything filled in — you just press Save.",
+    icsNote:"For iPhone, Outlook and other calendars. The file has to be opened afterwards.",
     notifAsk:"Allow notifications and the app will say when — but only while it's open.",
     notifBlocked:"Notifications are blocked in the browser", calNote:"The calendar rings even when the app is closed.",
     remindNote:"Notifications only work while Bjørkliste is open. To be rung regardless, put it in the calendar.",
@@ -826,7 +834,7 @@ function sheetItem(id){
   openSheet(it.emoji+" "+plain(it.text) || t("more"),
     '<div class="sheetfoot"><button class="btn" data-i="emoji">😀 '+t("pickEmoji")+'</button>'+
       '<button class="btn" data-i="repeat">🔁 '+t("repeat")+'</button></div>'+
-    '<div class="sheetfoot"><button class="btn" data-i="time">⏰ '+t("remind")+'</button>'+
+    '<div class="sheetfoot"><button class="btn" data-i="time">⏰ '+t("remind")+(it.time?" · "+esc(it.time):"")+'</button>'+
       '<button class="btn" data-i="cal">📅 '+t("calendar")+'</button></div>'+
     '<div class="sheetfoot"><button class="btn" data-i="up"'+(top?" disabled":"")+'>⬆️ '+t("moveUp")+'</button>'+
       '<button class="btn" data-i="down"'+(bottom?" disabled":"")+'>⬇️ '+t("moveDown")+'</button></div>'+
@@ -838,7 +846,12 @@ function sheetItem(id){
     if(a==="emoji"){ sheetEmoji(id); return; }
     if(a==="repeat"){ sheetRepeat(id); return; }
     if(a==="time"){ sheetTime(id); return; }
-    if(a==="cal"){ var g=findItem(id); if(g) downloadIcs([g.item], plain(g.item.text)); return; }
+    if(a==="cal"){
+      var g=findItem(id); if(!g) return;
+      if(!g.item.time){ toast(t("needTime")); sheetTime(id); return; }
+      toCalendar(g.item);
+      return;
+    }
     if(a==="up"){ moveItem(id,-1); closeSheet(); return; }
     if(a==="down"){ moveItem(id,1); closeSheet(); return; }
     if(a==="del"){
@@ -941,52 +954,55 @@ function buildIcs(items){
   out.push("END:VCALENDAR");
   return any ? out.join("\r\n") : "";
 }
-
-function downloadIcs(items, name){
-  var it = items[0];
-
-  // Kalender kræver et tidspunkt.
-  // Hvis brugeren ikke har valgt et tidspunkt endnu,
-  // bruges næste hele time i stedet for fejlen "Ingen påmindelse".
-  if(it && !it.time){
-    var d = new Date();
-    d.setHours(d.getHours()+1);
-    d.setMinutes(0);
-    it.time = pad2(d.getHours()) + ":00";
-    stamp(it);
-    save();
+function gcalUrl(it){
+  var d=today();
+  var hm=it.time.split(":"), h=+hm[0], mi=+hm[1];
+  var start=new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, mi, 0);
+  /* a one-off whose time has already gone today should land tomorrow */
+  if(it.repeat==="none" && start.getTime() < Date.now()) start.setDate(start.getDate()+1);
+  var end=new Date(start.getTime()+15*60000);
+  function fmt(x){
+    return x.getFullYear()+pad2(x.getMonth()+1)+pad2(x.getDate())+"T"+
+           pad2(x.getHours())+pad2(x.getMinutes())+"00";
   }
-
-  var text = buildIcs(items);
-
-  if(!text){
-    closeSheet();
-    toast("Kunne ikke oprette kalenderaftale");
-    return;
-  }
-
-  var blob = new Blob(
-    [text],
-    {type:"text/calendar;charset=utf-8"}
-  );
-
-  var url = URL.createObjectURL(blob);
-
-  // Forsøg direkte kalenderåbning på mobil.
-  // Hvis browseren ikke tillader det, åbnes kalender-importen.
-  if(/Android|iPhone|iPad/i.test(navigator.userAgent)){
-    window.location.href = url;
-  } else {
-    window.open(url, "_blank");
-  }
-
-  setTimeout(function(){
-    URL.revokeObjectURL(url);
-  },5000);
-
+  var tz="";
+  try{ tz=Intl.DateTimeFormat().resolvedOptions().timeZone||""; }catch(e){}
+  var p=["action=TEMPLATE",
+    "text="+encodeURIComponent(plain(it.text)),
+    "dates="+fmt(start)+"/"+fmt(end),
+    "details="+encodeURIComponent("Bjørkliste")];
+  if(tz) p.push("ctz="+encodeURIComponent(tz));
+  var r=icsRule(it);
+  if(r) p.push("recur="+encodeURIComponent(r));
+  return "https://calendar.google.com/calendar/render?"+p.join("&");
+}
+function toCalendar(it){
+  if(!it || !it.time){ toast(t("needTime")); return false; }
+  var url=gcalUrl(it), win=null;
+  try{ win=window.open(url,"_blank","noopener"); }catch(e){}
+  if(!win) location.href=url;
+  closeSheet();
+  return true;
+}
+function downloadIcs(items, name, empty){
+  var text=buildIcs(items);
+  if(!text){ toast(empty||t("noTimes")); return; }
+  var a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([text],{type:"text/calendar;charset=utf-8"}));
+  a.download="bjorkliste-"+slug(name)+".ics";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 3000);
   closeSheet();
 }
 
+function calBlock(it){
+  if(!it.time) return '';
+  return '<div class="sheetfoot" style="margin-top:6px">'+
+      '<button class="btn primary" data-tm-cal>📅 '+t("gcal")+'</button></div>'+
+    '<p class="note" style="margin:8px 0 0">'+t("gcalNote")+'</p>'+
+    '<button class="linkbtn" data-tm-ics>'+t("icsAlt")+'</button>'+
+    '<p class="note" style="margin:0">'+t("icsNote")+'</p>';
+}
 function sheetTime(id){
   var f=findItem(id); if(!f) return; var it=f.item;
   var blocked = ("Notification" in window) && Notification.permission==="denied";
@@ -1000,8 +1016,8 @@ function sheetTime(id){
       'border-radius:13px; border:2px solid var(--line); background:var(--paper); font-weight:700"></label>'+
     '<p class="note">'+t("remindNote")+'</p>'+
     (blocked?'<p class="err">'+t("notifBlocked")+'</p>':'')+
-    '<div class="sheetfoot"><button class="btn" data-tm-cal>📅 '+t("calendar")+'</button>'+
-      '<button class="btn primary" data-close>'+t("save")+'</button></div>';
+    '<div id="tmCal">'+calBlock(it)+'</div>'+
+    '<div class="sheetfoot"><button class="btn primary" data-close>'+t("save")+'</button></div>';
   openSheet("⏰ "+t("remind"), body);
   var b=$("#sheetBody");
   function set(v){
@@ -1010,12 +1026,18 @@ function sheetTime(id){
     Array.prototype.forEach.call(b.querySelectorAll("[data-tm]"), function(x){
       x.setAttribute("aria-pressed", x.getAttribute("data-tm")===it.time); });
     var own=$("#tmOwn"); if(own && own.value!==it.time) own.value=it.time;
+    var cal=$("#tmCal"); if(cal) cal.innerHTML=calBlock(it);
     renderRail();
   }
   b.addEventListener("click", function(e){
     var q=e.target.closest("[data-tm]");
     if(q){ set(q.getAttribute("data-tm")); return; }
-    if(e.target.closest("[data-tm-cal]")){ downloadIcs([it], plain(it.text)); return; }
+    if(e.target.closest("[data-tm-cal]")){ toCalendar(it); return; }
+    if(e.target.closest("[data-tm-ics]")){
+      if(!it.time){ toast(t("needTime")); return; }
+      downloadIcs([it], plain(it.text));
+      return;
+    }
   });
   b.addEventListener("change", function(e){
     if(e.target.id==="tmOwn") set(e.target.value);
@@ -1575,7 +1597,7 @@ function pdfWeek(doc, L, y){
 }
 function makePdf(mode){
   var J = window.jspdf && window.jspdf.jsPDF;
-  if(!J){ closeSheet(); toast(t("pdfMissing")); setTimeout(function(){ window.print(); }, 900); return; }
+  if(!J){ toast(t("pdfMissing")); setTimeout(function(){ window.print(); }, 900); return; }
   var doc=new J({unit:"pt", format:"a4"});
   var L=activeList(), stamp2=key(today()), name;
   if(mode==="all"){
@@ -1608,7 +1630,7 @@ function sheetPdf(){
   $("#sheetBody").addEventListener("click", function(e){
     var b=e.target.closest("[data-pdf]"); if(!b) return;
     var m=b.getAttribute("data-pdf");
-    if(m==="cal"){ var L=activeList(); downloadIcs(L.items, L.name); return; }
+    if(m==="cal"){ var L=activeList(); downloadIcs(L.items, L.name, t("noTimes")); return; }
     makePdf(m);
   });
 }
