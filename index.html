@@ -366,6 +366,12 @@ var T = {
     days:["Man","Tir","Ons","Tor","Fre","Lør","Søn"],
     close:"Luk", editItem:"Rediger punkt", moveHint:"Træk i ⠿ for at flytte",
     more:"Flere valg", moveUp:"Flyt op", moveDown:"Flyt ned",
+    remind:"Påmindelse", noRemind:"Ingen påmindelse", ownTime:"Eget tidspunkt",
+    calendar:"Læg i kalender", calendarAll:"Hele listen i kalenderen",
+    notifAsk:"Sig ja til beskeder, så siger appen til — men kun mens den er åben.",
+    notifBlocked:"Beskeder er slået fra i browseren", calNote:"Kalenderen ringer også når appen er lukket.",
+    remindNote:"Beskeder virker kun mens Bjørkliste er åben. Skal den ringe uanset hvad, så læg den i kalenderen.",
+    timeNow:"Det er tid til",
     sync:"Deling", signIn:"Log ind", signUp:"Opret bruger", signOut:"Log ud",
     email:"E-mail", password:"Kodeord", household:"Jeres fælles kode",
     householdHelp:"Del koden med Bjørk. Når hun skriver den ind på sin telefon, ser I de samme lister.",
@@ -399,6 +405,12 @@ var T = {
     days:["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
     close:"Close", editItem:"Edit item", moveHint:"Drag ⠿ to move",
     more:"More", moveUp:"Move up", moveDown:"Move down",
+    remind:"Reminder", noRemind:"No reminder", ownTime:"Own time",
+    calendar:"Add to calendar", calendarAll:"Whole list to calendar",
+    notifAsk:"Allow notifications and the app will say when — but only while it's open.",
+    notifBlocked:"Notifications are blocked in the browser", calNote:"The calendar rings even when the app is closed.",
+    remindNote:"Notifications only work while Bjørkliste is open. To be rung regardless, put it in the calendar.",
+    timeNow:"Time for",
     sync:"Sharing", signIn:"Sign in", signUp:"Create account", signOut:"Sign out",
     email:"Email", password:"Password", household:"Your shared code",
     householdHelp:"Give the code to Bjørk. When she types it on her phone, you both see the same lists.",
@@ -468,7 +480,7 @@ function seed(){
 }
 function mkItem(text, emoji, repeat, days){
   return { id:uid(), text:text, emoji:emoji||"✅", repeat:repeat||"none",
-           days:days||[0,1,2,3,4,5,6], dom:1, done:false, hist:{}, ts:Date.now() };
+           days:days||[0,1,2,3,4,5,6], dom:1, time:"", done:false, hist:{}, ts:Date.now() };
 }
 /* every change carries the moment it happened, so two phones can be merged safely */
 function stamp(o){ if(o) o.ts=Date.now(); return o; }
@@ -570,7 +582,8 @@ function rowHTML(it, d, opts){
   var done=isDone(it,d);
   var tags="";
   if(!S.big){
-    /* the list name matters most in the Today view, so it leads */
+    /* a set time leads, then the list name in the Today view */
+    if(it.time) tags+='<span class="tag on">⏰ '+esc(it.time)+'</span>';
     if(opts.listName) tags+='<span class="tag">'+esc(opts.listName)+'</span>';
     var r=repLabel(it);
     if(r) tags+='<span class="tag on">'+esc(r)+'</span>';
@@ -779,6 +792,8 @@ function sheetItem(id){
   openSheet(it.emoji+" "+plain(it.text) || t("more"),
     '<div class="sheetfoot"><button class="btn" data-i="emoji">😀 '+t("pickEmoji")+'</button>'+
       '<button class="btn" data-i="repeat">🔁 '+t("repeat")+'</button></div>'+
+    '<div class="sheetfoot"><button class="btn" data-i="time">⏰ '+t("remind")+'</button>'+
+      '<button class="btn" data-i="cal">📅 '+t("calendar")+'</button></div>'+
     '<div class="sheetfoot"><button class="btn" data-i="up"'+(top?" disabled":"")+'>⬆️ '+t("moveUp")+'</button>'+
       '<button class="btn" data-i="down"'+(bottom?" disabled":"")+'>⬇️ '+t("moveDown")+'</button></div>'+
     '<div class="sheetfoot"><button class="btn danger" data-i="del">✕ '+t("del")+'</button>'+
@@ -788,6 +803,8 @@ function sheetItem(id){
     var a=b.getAttribute("data-i");
     if(a==="emoji"){ sheetEmoji(id); return; }
     if(a==="repeat"){ sheetRepeat(id); return; }
+    if(a==="time"){ sheetTime(id); return; }
+    if(a==="cal"){ var g=findItem(id); if(g) downloadIcs([g.item], plain(g.item.text)); return; }
     if(a==="up"){ moveItem(id,-1); closeSheet(); return; }
     if(a==="down"){ moveItem(id,1); closeSheet(); return; }
     if(a==="del"){
@@ -801,6 +818,141 @@ function sheetItem(id){
     }
   });
 }
+/* ================= reminders =================
+   A web page can only speak while it is open, so there are two halves:
+   a notification while the app is running, and a real calendar entry that
+   rings on the phone whether or not Bjørkliste is open. */
+var QUICK=["07:00","08:00","12:00","16:00","18:00","20:00"];
+function pad2(n){ return (n<10?"0":"")+n; }
+function nowHM(d){ return pad2(d.getHours())+":"+pad2(d.getMinutes()); }
+function minsOf(hm){ var p=String(hm).split(":"); return (+p[0])*60+(+p[1]); }
+
+function firedMap(){
+  if(mem.fired) return mem.fired;
+  var f={};
+  try{ f=JSON.parse(localStorage.getItem("bjorkliste.fired")||"{}"); }catch(e){}
+  var k=key(today());
+  for(var x in f){ if(x.indexOf("|"+k)<0) delete f[x]; }   /* yesterday's are irrelevant */
+  mem.fired=f; return f;
+}
+function markFired(mk){
+  var f=firedMap(); f[mk]=1;
+  try{ localStorage.setItem("bjorkliste.fired", JSON.stringify(f)); }catch(e){}
+}
+function checkAlarms(){
+  if(!("Notification" in window) || Notification.permission!=="granted") return;
+  var d=today(), k=key(d), hm=nowHM(d), f=firedMap();
+  S.lists.forEach(function(L){
+    L.items.forEach(function(it){
+      if(!it.time || !isDue(it,d) || isDone(it,d)) return;
+      if(minsOf(it.time) > minsOf(hm)) return;
+      var mk=it.id+"|"+k;
+      if(f[mk]) return;
+      markFired(mk);
+      /* opening the app in the evening shouldn't dump the whole morning on you */
+      if(minsOf(hm)-minsOf(it.time) > 90) return;
+      try{
+        new Notification(t("timeNow")+" "+plain(it.text), {
+          body: L.emoji+" "+plain(L.name), tag: mk, icon: FAVICON });
+      }catch(e){}
+      chime(true);
+    });
+  });
+}
+var FAVICON="data:image/svg+xml,"+encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="15" fill="#EFF2EC"/><path d="M16 34l10 10 22-24" stroke="#4F8B4A" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+
+function askNotify(then){
+  if(!("Notification" in window)){ then&&then(false); return; }
+  if(Notification.permission==="granted"){ then&&then(true); return; }
+  if(Notification.permission==="denied"){ then&&then(false); return; }
+  Notification.requestPermission().then(function(p){ then&&then(p==="granted"); });
+}
+
+/* ---- calendar file: floating local time, so it means 07:00 wherever you are ---- */
+function icsEsc(s){ return plain(s).replace(/([,;\\])/g,"\\$1").replace(/\n/g," "); }
+function icsRule(it){
+  if(it.repeat==="daily") return "RRULE:FREQ=DAILY";
+  if(it.repeat==="weekly"){
+    var W=["MO","TU","WE","TH","FR","SA","SU"];
+    var days=(it.days&&it.days.length?it.days:[0,1,2,3,4,5,6]).map(function(i){ return W[i]; });
+    return "RRULE:FREQ=WEEKLY;BYDAY="+days.join(",");
+  }
+  if(it.repeat==="monthly") return "RRULE:FREQ=MONTHLY;BYMONTHDAY="+(it.dom||1);
+  return "";
+}
+function icsStamp(d){
+  return d.getUTCFullYear()+pad2(d.getUTCMonth()+1)+pad2(d.getUTCDate())+"T"+
+         pad2(d.getUTCHours())+pad2(d.getUTCMinutes())+"00Z";
+}
+function buildIcs(items){
+  var d=today(), out=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Bjorkliste//DA","CALSCALE:GREGORIAN"];
+  var stampNow=icsStamp(new Date()), any=false;
+  items.forEach(function(it){
+    if(!it.time) return;
+    any=true;
+    var start=d.getFullYear()+pad2(d.getMonth()+1)+pad2(d.getDate())+"T"+it.time.replace(":","")+"00";
+    var rule=icsRule(it);
+    out.push("BEGIN:VEVENT",
+      "UID:"+it.id+"@bjorkliste",
+      "DTSTAMP:"+stampNow,
+      "DTSTART:"+start,
+      "DURATION:PT15M",
+      "SUMMARY:"+icsEsc(it.text),
+      "DESCRIPTION:"+icsEsc("Bjørkliste"));
+    if(rule) out.push(rule);
+    out.push("BEGIN:VALARM","TRIGGER:PT0M","ACTION:DISPLAY",
+      "DESCRIPTION:"+icsEsc(it.text),"END:VALARM","END:VEVENT");
+  });
+  out.push("END:VCALENDAR");
+  return any ? out.join("\r\n") : "";
+}
+function downloadIcs(items, name){
+  var text=buildIcs(items);
+  if(!text){ toast(t("noRemind")); return; }
+  var a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([text],{type:"text/calendar;charset=utf-8"}));
+  a.download="bjorkliste-"+slug(name)+".ics";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 3000);
+  closeSheet();
+}
+
+function sheetTime(id){
+  var f=findItem(id); if(!f) return; var it=f.item;
+  var blocked = ("Notification" in window) && Notification.permission==="denied";
+  var body='<div class="opts">'+
+    '<button class="opt" data-tm="" aria-pressed="'+(!it.time)+'">'+t("noRemind")+'</button>'+
+    QUICK.map(function(q){
+      return '<button class="opt" data-tm="'+q+'" aria-pressed="'+(it.time===q)+'">'+q+'</button>'; }).join("")+
+    '</div>'+
+    '<label class="field" style="margin-top:14px"><span>'+t("ownTime")+'</span>'+
+      '<input type="time" id="tmOwn" value="'+esc(it.time||"")+'" style="width:100%; padding:12px 13px; '+
+      'border-radius:13px; border:2px solid var(--line); background:var(--paper); font-weight:700"></label>'+
+    '<p class="note">'+t("remindNote")+'</p>'+
+    (blocked?'<p class="err">'+t("notifBlocked")+'</p>':'')+
+    '<div class="sheetfoot"><button class="btn" data-tm-cal>📅 '+t("calendar")+'</button>'+
+      '<button class="btn primary" data-close>'+t("save")+'</button></div>';
+  openSheet("⏰ "+t("remind"), body);
+  var b=$("#sheetBody");
+  function set(v){
+    it.time=v||""; stamp(it); save();
+    if(it.time) askNotify(function(){ });
+    Array.prototype.forEach.call(b.querySelectorAll("[data-tm]"), function(x){
+      x.setAttribute("aria-pressed", x.getAttribute("data-tm")===it.time); });
+    var own=$("#tmOwn"); if(own && own.value!==it.time) own.value=it.time;
+    renderRail();
+  }
+  b.addEventListener("click", function(e){
+    var q=e.target.closest("[data-tm]");
+    if(q){ set(q.getAttribute("data-tm")); return; }
+    if(e.target.closest("[data-tm-cal]")){ downloadIcs([it], plain(it.text)); return; }
+  });
+  b.addEventListener("change", function(e){
+    if(e.target.id==="tmOwn") set(e.target.value);
+  });
+}
+
 function sheetEmoji(id){
   var f=findItem(id); if(!f) return;
   openSheet(t("pickEmoji"), '<div class="emojigrid">'+EMOJI.map(function(e){
@@ -1377,10 +1529,14 @@ function sheetPdf(){
     '<div class="sheetfoot"><button class="btn" data-pdf="week">'+t("pdfWeek")+'</button>'+
     '<button class="btn" data-pdf="all">'+t("pdfAll")+'</button></div>'+
     '<p class="note" style="margin-top:14px">'+t("pdfNote")+'</p>'+
+    '<div class="sheetfoot"><button class="btn" data-pdf="cal">📅 '+t("calendarAll")+'</button></div>'+
+    '<p class="note">'+t("calNote")+'</p>'+
     '<div class="sheetfoot"><button class="btn" data-close>'+t("cancel")+'</button></div>');
   $("#sheetBody").addEventListener("click", function(e){
     var b=e.target.closest("[data-pdf]"); if(!b) return;
-    makePdf(b.getAttribute("data-pdf"));
+    var m=b.getAttribute("data-pdf");
+    if(m==="cal"){ var L=activeList(); downloadIcs(L.items, L.name); return; }
+    makePdf(m);
   });
 }
 
@@ -1490,7 +1646,12 @@ setInterval(function(){
   var k=key(today());
   if(mem.day && mem.day!==k) render();
   mem.day=k;
-}, 60000);
+  checkAlarms();
+}, 30000);
+setTimeout(checkAlarms, 2500);
+document.addEventListener("visibilitychange", function(){
+  if(!document.hidden) checkAlarms();
+});
 mem.day=key(today());
 })();
 </script>
