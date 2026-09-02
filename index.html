@@ -215,6 +215,14 @@ body.big .more{display:none}
   border:2px dashed var(--line); border-radius:var(--r-md); padding:8px 10px; min-height:var(--row)}
 .addbox input{flex:1; min-width:0; border:0; background:none; outline:none; font-weight:700; font-size:16.5px; padding:6px 2px}
 .addbox input::placeholder{color:var(--bark-soft); font-weight:600}
+.micbtn{flex:none; height:44px; width:44px; border-radius:13px; background:var(--paper);
+  border:1px solid var(--line); display:grid; place-items:center; font-size:19px}
+body.listening .addbox{border-color:var(--berry); border-style:solid}
+body.listening .micbtn{background:var(--berry); border-color:var(--berry); animation:beat 1.1s infinite}
+@keyframes beat{0%,100%{transform:scale(1)}50%{transform:scale(1.09)}}
+@media (prefers-reduced-motion:reduce){ body.listening .micbtn{animation:none} }
+.hearing{display:flex; align-items:center; gap:8px; color:var(--berry); font-weight:700;
+  font-size:13.5px; margin:8px 4px 0}
 .addbtn{flex:none; height:44px; min-width:44px; padding:0 16px; border-radius:13px; background:var(--leaf);
   color:#fff; font-weight:800; font-size:17px; display:grid; place-items:center; box-shadow:var(--shadow)}
 .addbtn:active{transform:translateY(1px)}
@@ -375,6 +383,10 @@ var T = {
     notifBlocked:"Beskeder er slået fra i browseren", calNote:"Kalenderen ringer også når appen er lukket.",
     remindNote:"Beskeder virker kun mens Bjørkliste er åben. Skal den ringe uanset hvad, så læg den i kalenderen.",
     timeNow:"Det er tid til",
+    voice:"Sig det højt", listening:"Lytter …",
+    voiceHint:"Sig ét punkt ad gangen — eller flere med komma. Tryk igen for at stoppe.",
+    voiceNo:"Denne browser kan ikke høre efter. Prøv Chrome.",
+    micBlocked:"Mikrofonen er ikke givet lov",
     install:"Læg på telefonen", installed:"Nu ligger den på telefonen",
     installNote:"Så får I et ikon på hjemmeskærmen, og appen åbner uden browserlinje.",
     installedNote:"Den er allerede lagt på telefonen. Åbn den fra ikonet på hjemmeskærmen.",
@@ -420,6 +432,10 @@ var T = {
     notifBlocked:"Notifications are blocked in the browser", calNote:"The calendar rings even when the app is closed.",
     remindNote:"Notifications only work while Bjørkliste is open. To be rung regardless, put it in the calendar.",
     timeNow:"Time for",
+    voice:"Say it out loud", listening:"Listening …",
+    voiceHint:"One item at a time — or several with commas. Tap again to stop.",
+    voiceNo:"This browser can't listen. Try Chrome.",
+    micBlocked:"The microphone wasn't allowed",
     install:"Add to phone", installed:"It's on your phone now",
     installNote:"You get an icon on the home screen, and the app opens without the browser bar.",
     installedNote:"It's already on your phone. Open it from the home screen icon.",
@@ -654,8 +670,11 @@ function renderToday(){
 function addBoxHTML(){
   var L=activeList();
   return '<div class="addbox"><span class="emoji" aria-hidden="true">'+L.emoji+'</span>'+
-    '<input id="addInput" type="text" placeholder="'+t("addHere")+'" aria-label="'+t("addHere")+'" autocomplete="off">'+
-    '<button class="addbtn" id="addBtn">+</button></div>';
+    '<input id="addInput" type="text" placeholder="'+(hearing?t("listening"):t("addHere"))+'" '+
+      'aria-label="'+t("addHere")+'" autocomplete="off">'+
+    (SR?'<button class="micbtn" id="micBtn" aria-label="'+t("voice")+'">🎤</button>':'')+
+    '<button class="addbtn" id="addBtn">+</button></div>'+
+    (hearing?'<div class="hearing">🎙️ '+t("voiceHint")+'</div>':'');
 }
 
 function renderList(){
@@ -1104,6 +1123,7 @@ main.addEventListener("click", function(e){
   var el;
   if((el=e.target.closest("[data-tpl]"))){ applyTemplate(el.getAttribute("data-tpl")); return; }
   if(e.target.closest("[data-act='editlist']")){ sheetList(activeList()); return; }
+  if(e.target.closest("#micBtn")){ startVoice(); return; }
   if(e.target.closest("#addBtn")){ addFromInput(); return; }
 
   var cell=e.target.closest("[data-act='cell']");
@@ -1170,8 +1190,9 @@ function addFromInput(){
   var v=inp.value.trim(); if(!v) return;
   var L=activeList();
   var m=v.match(/^(\p{Extended_Pictographic}\uFE0F?)\s*(.+)$/u);
-  var emoji="✅", text=v;
+  var emoji="", text=v;
   if(m){ emoji=m[1]; text=m[2]; }
+  if(!emoji) emoji=guessEmoji(text);
   L.items.push(mkItem(text, emoji, "none")); stamp(L);
   inp.value=""; blip(760,.09); render();
   var ni=$("#addInput"); if(ni) ni.focus();
@@ -1640,6 +1661,97 @@ $("#rail").addEventListener("click", function(e){
 });
 $("#btnSettings").addEventListener("click", sheetSettings);
 $("#btnPrint").addEventListener("click", sheetPdf);
+
+/* ================= saying it out loud =================
+   Uses the browser's own speech recognition, so nothing is sent anywhere by us
+   and there is no key to keep. Chrome handles it best. */
+var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+var rec=null, hearing=false, hearTimer=null;
+
+/* a spoken "mælk" deserves a glass of milk, not a generic tick */
+var EMAP=[
+  [/mælk|milk|yoghurt|yogurt|skyr/,"🥛"], [/rugbrød|brød|bread|bolle|toast/,"🍞"],
+  [/kaffe|coffee|espresso/,"☕"], [/te\b|tea/,"🍵"], [/æg\b|eggs?\b/,"🥚"],
+  [/ost\b|cheese/,"🧀"], [/smør|butter/,"🧈"], [/banan|banana/,"🍌"],
+  [/æble|apple/,"🍎"], [/appelsin|orange|citron|lemon|lime/,"🍋"],
+  [/jordbær|bær|berries|strawberr/,"🍓"], [/drue|grape/,"🍇"],
+  [/tomat|tomato/,"🍅"], [/agurk|cucumber|salat|lettuce|broccoli|grønt|vegetab/,"🥦"],
+  [/gulerod|carrot/,"🥕"], [/kartof|potato|pommes/,"🥔"], [/løg\b|onion|hvidløg|garlic/,"🧅"],
+  [/kylling|chicken|kød|meat|hakket|bøf|steak/,"🍗"], [/fisk|fish|laks|salmon|torsk/,"🐟"],
+  [/ris\b|rice|pasta|spaghetti|nudler|noodle/,"🍝"], [/pizza/,"🍕"], [/suppe|soup/,"🍲"],
+  [/sukker|sugar|mel\b|flour|bag(e|ing)/,"🧁"], [/kage|cake|slik|candy|chokolade|chocolate/,"🍫"],
+  [/chips|snack|popcorn/,"🍿"], [/øl\b|beer|vin\b|wine/,"🍷"], [/vand|water|juice|sodavand|soda/,"💧"],
+  [/is\b|ice ?cream/,"🍦"], [/frost|frozen/,"🧊"],
+  [/tandbørste|tandpasta|tænder|teeth|tooth/,"🪥"], [/sæbe|shampoo|soap|bad\b|bath|brusebad|shower/,"🧴"],
+  [/toiletpapir|toilet|papir|paper|servietter/,"🧻"], [/vaskepulver|vask|laundry|tøjvask/,"🧺"],
+  [/rengør|clean|gulv|floor|støvsug|vacuum|skuresvamp/,"🧽"], [/skrald|affald|bin|rubbish|trash/,"🗑️"],
+  [/opvask|dishes|dishwash/,"🍽️"], [/seng|bed\b|sengetøj|sheets/,"🛏️"],
+  [/blomst|flower|plante|plant|vande/,"🪴"], [/have\b|garden|græs|lawn/,"🌱"],
+  [/bil\b|car\b|benzin|petrol|tank/,"🚗"], [/cykel|bike|bicycle/,"🚲"],
+  [/apotek|pharmacy|medicin|pille/,"💊"], [/læge|doctor|tandlæge|dentist/,"🩺"],
+  [/bank|betal|pay|regning|bill|faktura/,"💰"], [/post|brev|letter|pakke|parcel/,"📮"],
+  [/ring\b|ringe|call|telefon|phone/,"📞"], [/mail|email|skriv|write/,"✉️"],
+  [/møde|meeting|arbejde|work/,"💼"], [/læs|read|bog\b|book/,"📖"],
+  [/træn|gym|løb|run|motion|exercise|gåtur|walk/,"👟"], [/musik|music|guitar|klaver|piano/,"🎵"],
+  [/fødselsdag|birthday|gave|gift|present/,"🎁"], [/ferie|holiday|rejse|travel|fly\b|flight/,"✈️"],
+  [/skole|school|lektier|homework/,"🎒"], [/børn|kids|baby|ble\b|nappy|nappies/,"🧸"],
+  [/hund|dog\b|kat\b|cat\b|foder/,"🐕"], [/indkøb|shopping|handle|købe|buy/,"🛒"]
+];
+function guessEmoji(text){
+  var s=String(text).toLowerCase();
+  for(var i=0;i<EMAP.length;i++){ if(EMAP[i][0].test(s)) return EMAP[i][1]; }
+  return "✅";
+}
+
+function setHearing(on){
+  hearing=on;
+  document.body.classList.toggle("listening", on);
+  render();
+}
+function addSpoken(raw){
+  /* one sentence can hold a whole trolley: "mælk, rugbrød og bananer" */
+  var parts=String(raw).toLowerCase()
+    .replace(/^(tilføj|skriv|husk|køb|add|remember|buy)\s+/,"")
+    .split(/,| og | and |;| samt /);
+  var L=activeList(), n=0;
+  parts.forEach(function(p){
+    var txt=p.replace(/\s+/g," ").trim().replace(/[.!?]+$/,"");
+    if(txt.length<2) return;
+    txt=txt.charAt(0).toUpperCase()+txt.slice(1);
+    L.items.push(mkItem(txt, guessEmoji(txt), "none"));
+    n++;
+  });
+  if(n){ stamp(L); blip(760,.09); render(); }
+}
+function stopVoice(){
+  clearTimeout(hearTimer);
+  if(rec){ try{ rec.onend=null; rec.stop(); }catch(e){} }
+  rec=null; setHearing(false);
+}
+function startVoice(){
+  if(!SR){ toast(t("voiceNo")); return; }
+  if(hearing){ stopVoice(); return; }
+  try{ rec=new SR(); }catch(e){ toast(t("voiceNo")); return; }
+  rec.lang = S.lang==="da" ? "da-DK" : "en-GB";
+  rec.continuous=true; rec.interimResults=true;
+  rec.onresult=function(e){
+    var interim="";
+    for(var i=e.resultIndex;i<e.results.length;i++){
+      var r=e.results[i];
+      if(r.isFinal) addSpoken(r[0].transcript);
+      else interim+=r[0].transcript;
+    }
+    var inp=$("#addInput"); if(inp) inp.value=interim;
+  };
+  rec.onerror=function(e){
+    if(e.error==="not-allowed" || e.error==="service-not-allowed"){ toast(t("micBlocked")); stopVoice(); }
+  };
+  /* Chrome cuts the stream after a pause; start it again so it feels continuous */
+  rec.onend=function(){ if(hearing && rec){ try{ rec.start(); }catch(e){} } };
+  try{ rec.start(); }catch(e){ toast(t("voiceNo")); return; }
+  setHearing(true);
+  hearTimer=setTimeout(stopVoice, 60000);
+}
 
 /* installable on the phone: needs manifest.json and sw.js next to this file */
 var installEvt=null;
