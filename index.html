@@ -8,6 +8,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Bjørkliste">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23EFF2EC'/%3E%3Cpath d='M8 17l5 5 11-12' stroke='%234F8B4A' stroke-width='4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -372,6 +375,12 @@ var T = {
     notifBlocked:"Beskeder er slået fra i browseren", calNote:"Kalenderen ringer også når appen er lukket.",
     remindNote:"Beskeder virker kun mens Bjørkliste er åben. Skal den ringe uanset hvad, så læg den i kalenderen.",
     timeNow:"Det er tid til",
+    install:"Læg på telefonen", installed:"Nu ligger den på telefonen",
+    installNote:"Så får I et ikon på hjemmeskærmen, og appen åbner uden browserlinje.",
+    installedNote:"Den er allerede lagt på telefonen. Åbn den fra ikonet på hjemmeskærmen.",
+    installAndroid:"Tryk på de tre prikker øverst i Chrome og vælg \u201eTilføj til startskærm\u201c.",
+    installIos:"Tryk på Del-knappen nederst i Safari og vælg \u201eFøj til hjemmeskærm\u201c.",
+    installInApp:"Åbner du siden inde i Messenger eller Facebook, kan den ikke lægges på telefonen. Åbn den i Chrome eller Safari først.",
     sync:"Deling", signIn:"Log ind", signUp:"Opret bruger", signOut:"Log ud",
     email:"E-mail", password:"Kodeord", household:"Jeres fælles kode",
     householdHelp:"Del koden med Bjørk. Når hun skriver den ind på sin telefon, ser I de samme lister.",
@@ -411,6 +420,12 @@ var T = {
     notifBlocked:"Notifications are blocked in the browser", calNote:"The calendar rings even when the app is closed.",
     remindNote:"Notifications only work while Bjørkliste is open. To be rung regardless, put it in the calendar.",
     timeNow:"Time for",
+    install:"Add to phone", installed:"It's on your phone now",
+    installNote:"You get an icon on the home screen, and the app opens without the browser bar.",
+    installedNote:"It's already on your phone. Open it from the home screen icon.",
+    installAndroid:"Tap the three dots in Chrome and choose \u201cAdd to Home screen\u201d.",
+    installIos:"Tap the Share button in Safari and choose \u201cAdd to Home Screen\u201d.",
+    installInApp:"Opening the page inside Messenger or Facebook won't let you install it. Open it in Chrome or Safari first.",
     sync:"Sharing", signIn:"Sign in", signUp:"Create account", signOut:"Sign out",
     email:"Email", password:"Password", household:"Your shared code",
     householdHelp:"Give the code to Bjørk. When she types it on her phone, you both see the same lists.",
@@ -1023,6 +1038,7 @@ function sheetSettings(){
       '<button class="opt" data-look="dusk" aria-pressed="'+(S.theme==="dusk")+'">🌙 '+t("dusk")+'</button></div></div>'+
     '<div class="sheetfoot"><button class="btn" id="sSync">☁️ '+t("sync")+'</button>'+
       '<button class="btn" id="sPdf">📄 '+t("pdf")+'</button></div>'+
+    '<div class="sheetfoot"><button class="btn" id="sInstall">📲 '+t("install")+'</button></div>'+
     '<div class="sheetfoot"><button class="btn" id="sExport">⬇️ '+t("backup")+'</button>'+
       '<button class="btn" id="sImport">⬆️ '+t("restore")+'</button></div>'+
     '<div class="sheetfoot"><button class="btn danger" id="sReset">'+t("reset")+'</button>'+
@@ -1046,6 +1062,7 @@ function sheetSettings(){
     }
     if(e.target.closest("#sSync")){ sheetSync(); return; }
     if(e.target.closest("#sPdf")){ sheetPdf(); return; }
+    if(e.target.closest("#sInstall")){ sheetInstall(); return; }
     if(e.target.closest("#sImport")){ $("#sFile").click(); return; }
     if(e.target.closest("#sReset")){
       if(confirm(t("resetAsk"))){ S=seed(); closeSheet(); render(); }
@@ -1624,17 +1641,39 @@ $("#rail").addEventListener("click", function(e){
 $("#btnSettings").addEventListener("click", sheetSettings);
 $("#btnPrint").addEventListener("click", sheetPdf);
 
-/* installable on the phone home screen, still one single file */
-try{
-  var mf={ name:"Bjørkliste", short_name:"Bjørkliste", start_url:".", display:"standalone",
-    background_color:"#EFF2EC", theme_color:"#EFF2EC",
-    icons:[{ src:"data:image/svg+xml,"+encodeURIComponent(
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="120" fill="#EFF2EC"/><path d="M128 268l84 84 172-192" stroke="#4F8B4A" stroke-width="56" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
-      sizes:"512x512", type:"image/svg+xml" }] };
-  var link=document.createElement("link"); link.rel="manifest";
-  link.href=URL.createObjectURL(new Blob([JSON.stringify(mf)],{type:"application/manifest+json"}));
-  document.head.appendChild(link);
-}catch(e){}
+/* installable on the phone: needs manifest.json and sw.js next to this file */
+var installEvt=null;
+window.addEventListener("beforeinstallprompt", function(e){ e.preventDefault(); installEvt=e; });
+window.addEventListener("appinstalled", function(){ installEvt=null; toast(t("installed")); });
+function standalone(){
+  return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+         window.navigator.standalone===true;
+}
+if("serviceWorker" in navigator && location.protocol.indexOf("http")===0){
+  window.addEventListener("load", function(){
+    navigator.serviceWorker.register("sw.js").catch(function(){});
+  });
+}
+function sheetInstall(){
+  var body;
+  if(standalone()){
+    body='<p class="note">'+t("installedNote")+'</p>';
+  } else if(installEvt){
+    body='<p class="note">'+t("installNote")+'</p>'+
+      '<div class="sheetfoot"><button class="btn primary" id="inGo">📲 '+t("install")+'</button></div>';
+  } else {
+    var ios=/iPad|iPhone|iPod/.test(navigator.userAgent);
+    body='<p class="note">'+(ios?t("installIos"):t("installAndroid"))+'</p>'+
+         '<p class="note">'+t("installInApp")+'</p>';
+  }
+  openSheet("📲 "+t("install"), body+
+    '<div class="sheetfoot"><button class="btn" data-close>'+t("close")+'</button></div>');
+  $("#sheetBody").addEventListener("click", function(e){
+    if(!e.target.closest("#inGo") || !installEvt) return;
+    installEvt.prompt();
+    installEvt.userChoice.then(function(){ installEvt=null; closeSheet(); });
+  });
+}
 
 setState("off");
 fbInit();
