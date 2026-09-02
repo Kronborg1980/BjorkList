@@ -1,6 +1,6 @@
 /* Bjørkliste service worker.
    Bump CACHE when you upload a new index.html — old copies are then thrown away. */
-const CACHE = "bjorkliste-v1";
+const CACHE = "bjorkliste-v2";
 const SHELL = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (e) => {
