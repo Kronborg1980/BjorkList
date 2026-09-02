@@ -180,8 +180,29 @@ header.top{display:flex; align-items:center; gap:12px; padding:20px 0 10px}
 .tag{font-size:12px; font-weight:800; color:var(--bark-soft); background:var(--paper);
   border:1px solid var(--line); border-radius:999px; padding:2px 9px}
 .tag.on{color:var(--leaf-deep); border-color:var(--leaf); background:var(--leaf-soft)}
+.rowtools{display:flex; align-items:center; gap:2px}
 .rowbtn{flex:none; width:36px; height:36px; border-radius:10px; display:grid; place-items:center;
   color:var(--bark-soft); font-size:17px}
+.more{display:none; font-size:22px; letter-spacing:1px}
+/* on a phone the four buttons ate the width the words needed, so they collapse into one */
+@media (max-width:680px){
+  .rowtools{display:none}
+  .more{display:grid}
+  .row{gap:9px; padding:7px 6px 7px 7px}
+  .emoji{width:34px; height:34px; font-size:19px; border-radius:10px}
+  .txt{font-size:16px}
+  .tag{font-size:11px; padding:1px 8px}
+  .tags .tag:nth-child(n+2){display:none}
+  :root{--row:54px}
+  .card{padding:15px; margin-bottom:13px}
+  .rows{gap:7px}
+  .grouphead{margin:16px 4px 8px}
+  .views{margin:4px 0 14px}
+  .rail{padding-bottom:11px}
+  .chip{padding:9px 14px}
+  header.top{padding:16px 0 6px}
+}
+body.big .more{display:none}
 .rowbtn:hover{background:var(--paper)}
 .handle{cursor:grab; touch-action:none; font-size:15px; letter-spacing:1px}
 .row.dragging .handle{cursor:grabbing}
@@ -344,6 +365,7 @@ var T = {
     completed:"Klaret", oneOff:"Enkelte opgaver", noRepeat:"Ingen gentagne punkter i denne liste endnu.",
     days:["Man","Tir","Ons","Tor","Fre","Lør","Søn"],
     close:"Luk", editItem:"Rediger punkt", moveHint:"Træk i ⠿ for at flytte",
+    more:"Flere valg", moveUp:"Flyt op", moveDown:"Flyt ned",
     sync:"Deling", signIn:"Log ind", signUp:"Opret bruger", signOut:"Log ud",
     email:"E-mail", password:"Kodeord", household:"Jeres fælles kode",
     householdHelp:"Del koden med Bjørk. Når hun skriver den ind på sin telefon, ser I de samme lister.",
@@ -376,6 +398,7 @@ var T = {
     completed:"Done", oneOff:"One-time tasks", noRepeat:"No repeating items in this list yet.",
     days:["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
     close:"Close", editItem:"Edit item", moveHint:"Drag ⠿ to move",
+    more:"More", moveUp:"Move up", moveDown:"Move down",
     sync:"Sharing", signIn:"Sign in", signUp:"Create account", signOut:"Sign out",
     email:"Email", password:"Password", household:"Your shared code",
     householdHelp:"Give the code to Bjørk. When she types it on her phone, you both see the same lists.",
@@ -547,13 +570,10 @@ function rowHTML(it, d, opts){
   var done=isDone(it,d);
   var tags="";
   if(!S.big){
-    if(it.repeat==="daily") tags='<span class="tag on">'+t("daily")+'</span>';
-    else if(it.repeat==="weekly"){
-      var ds=T[S.lang]?T[S.lang].days:T.en.days;
-      tags='<span class="tag on">'+it.days.map(function(i){return ds[i];}).join(" ")+'</span>';
-    }
-    else if(it.repeat==="monthly") tags='<span class="tag on">'+t("monthly")+'</span>';
+    /* the list name matters most in the Today view, so it leads */
     if(opts.listName) tags+='<span class="tag">'+esc(opts.listName)+'</span>';
+    var r=repLabel(it);
+    if(r) tags+='<span class="tag on">'+esc(r)+'</span>';
   }
   return '<div class="row'+(done?" done":"")+'" data-id="'+it.id+'">'+
     '<button class="tick" data-act="toggle" role="checkbox" aria-checked="'+done+'" '+
@@ -562,9 +582,12 @@ function rowHTML(it, d, opts){
     '<div class="main"><div class="txt" data-act="text" contenteditable="plaintext-only" '+
       'role="textbox" aria-label="'+t("editItem")+'">'+esc(it.text)+'</div>'+
       (tags?'<div class="tags">'+tags+'</div>':'')+'</div>'+
-    (S.big?'':'<button class="rowbtn" data-act="repeat" aria-label="'+t("repeat")+'">🔁</button>')+
-    '<button class="rowbtn" data-act="del" aria-label="'+t("del")+'">✕</button>'+
-    (S.big?'':'<button class="rowbtn handle" data-handle aria-label="'+t("moveHint")+'">⠿</button>')+
+    (S.big?'':'<span class="rowtools">'+
+      '<button class="rowbtn" data-act="repeat" aria-label="'+t("repeat")+'">🔁</button>'+
+      '<button class="rowbtn" data-act="del" aria-label="'+t("del")+'">✕</button>'+
+      '<button class="rowbtn handle" data-handle aria-label="'+t("moveHint")+'">⠿</button></span>'+
+      '<button class="rowbtn more" data-act="more" aria-label="'+t("more")+'">⋯</button>')+
+    (S.big?'<button class="rowbtn" data-act="del" aria-label="'+t("del")+'">✕</button>':'')+
   '</div>';
 }
 
@@ -743,6 +766,41 @@ function sheetRepeat(id){
   });
 }
 
+function moveItem(id, dir){
+  var f=findItem(id); if(!f) return;
+  var L=f.list, i=f.idx, j=i+dir;
+  if(j<0 || j>=L.items.length) return;
+  var tmp=L.items[i]; L.items[i]=L.items[j]; L.items[j]=tmp;
+  stamp(L); render();
+}
+function sheetItem(id){
+  var f=findItem(id); if(!f) return;
+  var it=f.item, top=f.idx===0, bottom=f.idx===f.list.items.length-1;
+  openSheet(it.emoji+" "+plain(it.text) || t("more"),
+    '<div class="sheetfoot"><button class="btn" data-i="emoji">😀 '+t("pickEmoji")+'</button>'+
+      '<button class="btn" data-i="repeat">🔁 '+t("repeat")+'</button></div>'+
+    '<div class="sheetfoot"><button class="btn" data-i="up"'+(top?" disabled":"")+'>⬆️ '+t("moveUp")+'</button>'+
+      '<button class="btn" data-i="down"'+(bottom?" disabled":"")+'>⬇️ '+t("moveDown")+'</button></div>'+
+    '<div class="sheetfoot"><button class="btn danger" data-i="del">✕ '+t("del")+'</button>'+
+      '<button class="btn primary" data-close>'+t("close")+'</button></div>');
+  $("#sheetBody").addEventListener("click", function(e){
+    var b=e.target.closest("[data-i]"); if(!b || b.disabled) return;
+    var a=b.getAttribute("data-i");
+    if(a==="emoji"){ sheetEmoji(id); return; }
+    if(a==="repeat"){ sheetRepeat(id); return; }
+    if(a==="up"){ moveItem(id,-1); closeSheet(); return; }
+    if(a==="down"){ moveItem(id,1); closeSheet(); return; }
+    if(a==="del"){
+      var g=findItem(id); if(!g) return;
+      var backup={list:g.list, item:g.item, idx:g.idx};
+      bury(g.item.id); stamp(g.list); g.list.items.splice(g.idx,1);
+      closeSheet(); render(); blip(300,.08);
+      toast(t("deleted"), t("undo"), function(){
+        delete S.tomb[backup.item.id]; stamp(backup.item); stamp(backup.list);
+        backup.list.items.splice(backup.idx,0,backup.item); render(); });
+    }
+  });
+}
 function sheetEmoji(id){
   var f=findItem(id); if(!f) return;
   openSheet(t("pickEmoji"), '<div class="emojigrid">'+EMOJI.map(function(e){
@@ -910,6 +968,7 @@ main.addEventListener("click", function(e){
     }, 380);
     return;
   }
+  if(e.target.closest("[data-act='more']")){ sheetItem(id); return; }
   if(e.target.closest("[data-act='emoji']")){ sheetEmoji(id); return; }
   if(e.target.closest("[data-act='repeat']")){ sheetRepeat(id); return; }
   if(e.target.closest("[data-act='del']")){
