@@ -1469,9 +1469,10 @@ function googleIn(fail){
 }
 
 /* ================= printable PDF ================= */
-var PW=595.28, PH=841.89, PM=48;
-var INK=[42,46,39], SOFT=[110,118,104], RULE=[214,222,206], LEAF=[79,139,74];
-var PCOL=[[79,139,74],[91,143,176],[194,69,60],[231,177,74],[138,118,196],[79,167,155]];
+var PW=595.28, PH=841.89, PM=54;
+var INK=[42,46,39], SOFT=[122,130,116], RULE=[221,228,214], LEAF=[79,139,74],
+    LEAFD=[59,107,56], TINT=[245,249,243], PILL=[237,242,233], CREAM=[250,251,248];
+var PCOL=[[79,139,74],[91,143,176],[194,69,60],[214,158,54],[124,105,178],[64,152,140]];
 
 /* the PDF fonts cover æøå but not emoji, so icons are dropped rather than drawn as tofu */
 function plain(s){
@@ -1488,112 +1489,151 @@ function repLabel(it){
   }
   return "";
 }
-function pdfHead(doc, sub){
-  doc.setFont("helvetica","bold"); doc.setFontSize(23);
-  doc.setTextColor(INK[0],INK[1],INK[2]);
-  doc.text("Bjørkliste", PM, 62);
-  doc.setFont("helvetica","normal"); doc.setFontSize(9.5);
-  doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
-  doc.text(plain(sub), PW-PM, 62, {align:"right"});
-  var y=78;
-  doc.setDrawColor(RULE[0],RULE[1],RULE[2]); doc.setLineWidth(2.4);
-  doc.line(PM,y,PW-PM,y);
-  doc.setDrawColor(INK[0],INK[1],INK[2]);          /* birch dashes across the rule */
-  [0.06,0.27,0.52,0.79].forEach(function(p){
-    var x=PM+(PW-2*PM)*p; doc.line(x,y,x+20,y);
+function setFill(doc,c){ doc.setFillColor(c[0],c[1],c[2]); }
+function setInk(doc,c){ doc.setTextColor(c[0],c[1],c[2]); }
+function setStroke(doc,c){ doc.setDrawColor(c[0],c[1],c[2]); }
+
+/* the same bark dash the app wears next to its name */
+function mark(doc, x, y, h, col){
+  setFill(doc,col);
+  doc.roundedRect(x, y-h, h*0.31, h, h*0.15, h*0.15, "F");
+}
+/* the bark stripe down the left edge, same as on screen */
+function barkEdge(doc){
+  setFill(doc, TINT);
+  doc.roundedRect(26, 60, 9, PH-150, 4.5, 4.5, "F");
+  setFill(doc, [201,212,193]);
+  [0.10,0.26,0.44,0.58,0.74,0.9].forEach(function(p){
+    doc.roundedRect(26, 60+(PH-150)*p, 9, 5, 2.5, 2.5, "F");
   });
-  return 108;
+}
+function pdfHead(doc, sub){
+  barkEdge(doc);
+  mark(doc, PM, 76, 24, INK);
+  doc.setFont("helvetica","bold"); doc.setFontSize(25); setInk(doc,INK);
+  doc.text("Bjørkliste", PM+17, 74);
+  doc.setFont("helvetica","normal"); doc.setFontSize(9);
+  setInk(doc,SOFT);
+  doc.text(plain(sub), PW-PM, 74, {align:"right"});
+  setStroke(doc, RULE); doc.setLineWidth(1.2);
+  doc.line(PM, 88, PW-PM, 88);
+  return 122;
 }
 function pdfFoot(doc){
   var n=doc.internal.getNumberOfPages();
   for(var i=1;i<=n;i++){
     doc.setPage(i);
-    doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
-    doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
-    doc.text(String(i)+" / "+n, PW/2, PH-30, {align:"center"});
+    setStroke(doc, RULE); doc.setLineWidth(0.8);
+    doc.line(PM, PH-52, PW-PM, PH-52);
+    doc.setFont("helvetica","normal"); doc.setFontSize(8);
+    setInk(doc, SOFT);
+    doc.text("Bjørkliste", PM, PH-36);
+    doc.text(String(i)+" / "+n, PW/2, PH-36, {align:"center"});
+    mark(doc, PW-PM-5, PH-32, 12, [190,208,182]);
   }
 }
 function pdfBox(doc,x,y,size,ticked){
-  doc.setDrawColor(160,170,152); doc.setLineWidth(1.1);
-  doc.roundedRect(x, y-size+2, size, size, 3, 3, "S");
   if(ticked){
-    doc.setDrawColor(LEAF[0],LEAF[1],LEAF[2]); doc.setLineWidth(1.9);
-    doc.line(x+2.6, y-size/2+1.4, x+size*0.42, y-1.4);
-    doc.line(x+size*0.42, y-1.4, x+size-2.2, y-size+5.2);
+    setFill(doc,LEAF); setStroke(doc,LEAF); doc.setLineWidth(1);
+    doc.roundedRect(x, y-size+2, size, size, size*0.28, size*0.28, "FD");
+    setStroke(doc,[255,255,255]); doc.setLineWidth(size*0.16);
+    doc.line(x+size*0.22, y-size*0.42, x+size*0.42, y-size*0.20);
+    doc.line(x+size*0.42, y-size*0.20, x+size*0.78, y-size*0.74);
+  } else {
+    setStroke(doc,[176,188,168]); doc.setLineWidth(1.1);
+    setFill(doc,[255,255,255]);
+    doc.roundedRect(x, y-size+2, size, size, size*0.28, size*0.28, "FD");
   }
 }
-function listTitle(doc, L, y){
-  if(y>PH-150){ doc.addPage(); y=pdfHead(doc, plain(S.name||"Bjørk")+" · "+key(today())); }
-  var c=PCOL[L.color%PCOL.length];
-  doc.setFillColor(c[0],c[1],c[2]);
-  doc.roundedRect(PM, y-11, 5, 15, 2.5, 2.5, "F");
-  doc.setFont("helvetica","bold"); doc.setFontSize(14);
-  doc.setTextColor(INK[0],INK[1],INK[2]);
-  doc.text(plain(L.name), PM+15, y);
+function pdfPill(doc, text, x, y, tint, ink){
+  doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+  var w=doc.getTextWidth(text)+13;
+  setFill(doc,tint); doc.roundedRect(x, y-10, w, 13.5, 6.5, 6.5, "F");
+  setInk(doc,ink); doc.text(text, x+6.5, y-0.6);
+  return w;
+}
+function pillWidth(doc, text){
+  doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+  return doc.getTextWidth(text)+13;
+}
+function listTitle(doc, L, y, sub){
+  if(y>PH-160){ doc.addPage(); y=pdfHead(doc, sub||""); }
+  var c=PCOL[L.color%PCOL.length], name=plain(L.name);
+  doc.setFont("helvetica","bold"); doc.setFontSize(12.5);
+  var w=doc.getTextWidth(name)+30;
+  setFill(doc,c); doc.roundedRect(PM, y-15, w, 24, 12, 12, "F");
+  setInk(doc,[255,255,255]); doc.text(name, PM+15, y+1);
+  return y+34;
+}
+function pdfList(doc, L, y, sub){
+  var d=today();
+  y=listTitle(doc,L,y,sub);
+  if(!L.items.length){
+    doc.setFont("helvetica","italic"); doc.setFontSize(10); setInk(doc,SOFT);
+    doc.text(plain(t("emptyTitle")), PM+14, y+4); return y+30;
+  }
+  var n=0;
+  L.items.forEach(function(it){
+    var pills=[];
+    if(it.time) pills.push([it.time, PILL, LEAFD]);
+    var r=repLabel(it); if(r) pills.push([plain(r), PILL, SOFT]);
+    var pw=0; pills.forEach(function(p){ pw+=pillWidth(doc,p[0])+5; });
+    doc.setFont("helvetica","normal"); doc.setFontSize(11);
+    var maxw=PW-PM*2-46-pw-14;
+    var lines=doc.splitTextToSize(plain(it.text), maxw);
+    var h=Math.max(30, lines.length*13.5+15);
+    if(y+h>PH-80){ doc.addPage(); y=pdfHead(doc, sub||""); y=listTitle(doc,L,y,sub); n=0; }
+    if(n%2===0){ setFill(doc,TINT); doc.roundedRect(PM, y-4, PW-PM*2, h-4, 9, 9, "F"); }
+    pdfBox(doc, PM+13, y+16, 15, isDone(it,d));
+    doc.setFont("helvetica","normal"); doc.setFontSize(11); setInk(doc,INK);
+    doc.text(lines, PM+40, y+15);
+    var px=PW-PM-10;
+    for(var i=pills.length-1;i>=0;i--){
+      px-=pillWidth(doc,pills[i][0]);
+      pdfPill(doc, pills[i][0], px, y+17, pills[i][1], pills[i][2]);
+      px-=5;
+    }
+    y+=h; n++;
+  });
   return y+22;
 }
-function pdfList(doc, L, y){
-  var d=today(), maxw=PW-PM*2-34-95;
-  y=listTitle(doc,L,y);
-  if(!L.items.length){
-    doc.setFont("helvetica","italic"); doc.setFontSize(10);
-    doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
-    doc.text(plain(t("emptyTitle")), PM+22, y+2); return y+26;
-  }
-  L.items.forEach(function(it){
-    var lines=doc.splitTextToSize(plain(it.text), maxw), h=Math.max(24, lines.length*13+11);
-    if(y+h>PH-56){ doc.addPage(); y=pdfHead(doc, plain(L.name)); y=listTitle(doc,L,y); }
-    doc.setDrawColor(RULE[0],RULE[1],RULE[2]); doc.setLineWidth(.7);
-    doc.line(PM, y+h-8, PW-PM, y+h-8);
-    pdfBox(doc, PM+3, y+5, 13, isDone(it,d));
-    doc.setFont("helvetica","normal"); doc.setFontSize(11);
-    doc.setTextColor(INK[0],INK[1],INK[2]);
-    doc.text(lines, PM+26, y+4);
-    var r=repLabel(it);
-    if(r){
-      doc.setFontSize(8.5); doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
-      doc.text(plain(r), PW-PM-2, y+4, {align:"right"});
-    }
-    y+=h;
-  });
-  return y+16;
-}
-function pdfWeek(doc, L, y){
+function pdfWeek(doc, L, y, sub){
   var ws=weekStart(today()), ds=T[S.lang]?T[S.lang].days:T.en.days;
   var rep=L.items.filter(function(it){ return it.repeat!=="none"; });
-  var namew=210, cw=(PW-PM*2-namew)/7, rowh=26;
-  y=listTitle(doc,L,y);
+  var namew=196, cw=(PW-PM*2-namew)/7, rowh=30;
+  y=listTitle(doc,L,y,sub);
   function head(yy){
-    doc.setFont("helvetica","bold"); doc.setFontSize(8.5);
-    doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
     for(var i=0;i<7;i++){
       var day=new Date(ws); day.setDate(ws.getDate()+i);
-      doc.text(ds[i]+" "+day.getDate(), PM+namew+cw*i+cw/2, yy, {align:"center"});
+      var cx=PM+namew+cw*i+cw/2, isToday=key(day)===key(today());
+      if(isToday){ setFill(doc,PILL); doc.roundedRect(cx-cw/2+3, yy-15, cw-6, 30, 8, 8, "F"); }
+      doc.setFont("helvetica","bold"); doc.setFontSize(8.5);
+      setInk(doc, isToday?LEAFD:SOFT);
+      doc.text(ds[i], cx, yy-3, {align:"center"});
+      doc.setFont("helvetica","normal"); doc.setFontSize(9);
+      doc.text(String(day.getDate()), cx, yy+9, {align:"center"});
     }
-    doc.setDrawColor(RULE[0],RULE[1],RULE[2]); doc.setLineWidth(1.4);
-    doc.line(PM, yy+6, PW-PM, yy+6);
-    return yy+6;
+    return yy+26;
   }
-  y=head(y);
+  y=head(y+10);
   rep.forEach(function(it,n){
-    if(y+rowh>PH-56){ doc.addPage(); y=pdfHead(doc, plain(L.name)); y=listTitle(doc,L,y); y=head(y); }
-    if(n%2===0){ doc.setFillColor(246,248,243); doc.rect(PM, y, PW-PM*2, rowh, "F"); }
-    doc.setFont("helvetica","normal"); doc.setFontSize(10);
-    doc.setTextColor(INK[0],INK[1],INK[2]);
-    doc.text(doc.splitTextToSize(plain(it.text), namew-14)[0], PM+6, y+17);
+    if(y+rowh>PH-80){ doc.addPage(); y=pdfHead(doc, sub||""); y=listTitle(doc,L,y,sub); y=head(y+10); }
+    if(n%2===0){ setFill(doc,TINT); doc.roundedRect(PM, y, PW-PM*2, rowh-3, 9, 9, "F"); }
+    doc.setFont("helvetica","normal"); doc.setFontSize(10.5); setInk(doc,INK);
+    doc.text(doc.splitTextToSize(plain(it.text), namew-22)[0], PM+14, y+19);
+    if(it.time){ pdfPill(doc, it.time, PM+namew-46, y+20, PILL, LEAFD); }
     for(var i=0;i<7;i++){
       var day=new Date(ws); day.setDate(ws.getDate()+i);
       if(!isDue(it,day)) continue;
-      pdfBox(doc, PM+namew+cw*i+cw/2-6.5, y+18, 13, isDone(it,day));
+      pdfBox(doc, PM+namew+cw*i+cw/2-7.5, y+21, 15, isDone(it,day));
     }
     y+=rowh;
   });
   if(!rep.length){
-    doc.setFont("helvetica","italic"); doc.setFontSize(10);
-    doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
-    doc.text(plain(t("noRepeat")), PM+6, y+16); y+=26;
+    doc.setFont("helvetica","italic"); doc.setFontSize(10); setInk(doc,SOFT);
+    doc.text(plain(t("noRepeat")), PM+14, y+16); y+=30;
   }
-  return y+16;
+  return y+22;
 }
 function makePdf(mode){
   var J = window.jspdf && window.jspdf.jsPDF;
@@ -1602,16 +1642,16 @@ function makePdf(mode){
   var L=activeList(), stamp2=key(today()), name;
   if(mode==="all"){
     var y=pdfHead(doc, plain(S.name||"Bjørk")+" · "+stamp2);
-    S.lists.forEach(function(x){ y=pdfList(doc, x, y); });
+    S.lists.forEach(function(x){ y=pdfList(doc, x, y, plain(S.name||"Bjørk")+" · "+stamp2); });
     name="Bjorkliste-alle-"+stamp2+".pdf";
   } else if(mode==="week"){
     var ws=weekStart(today());
     var y2=pdfHead(doc, plain(t("week"))+" · "+key(ws));
-    pdfWeek(doc, L, y2);
+    pdfWeek(doc, L, y2, plain(t("week"))+" · "+key(ws));
     name="Bjorkliste-"+slug(L.name)+"-uge-"+key(ws)+".pdf";
   } else {
     var y3=pdfHead(doc, plain(S.name||"Bjørk")+" · "+stamp2);
-    pdfList(doc, L, y3);
+    pdfList(doc, L, y3, plain(S.name||"Bjørk")+" · "+stamp2);
     name="Bjorkliste-"+slug(L.name)+"-"+stamp2+".pdf";
   }
   pdfFoot(doc);
