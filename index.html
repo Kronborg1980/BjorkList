@@ -943,43 +943,47 @@ function buildIcs(items){
 }
 
 function downloadIcs(items, name){
-  var text=buildIcs(items);
+  var it = items[0];
+
+  // Kalender kræver et tidspunkt.
+  // Hvis brugeren ikke har valgt et tidspunkt endnu,
+  // bruges næste hele time i stedet for fejlen "Ingen påmindelse".
+  if(it && !it.time){
+    var d = new Date();
+    d.setHours(d.getHours()+1);
+    d.setMinutes(0);
+    it.time = pad2(d.getHours()) + ":00";
+    stamp(it);
+    save();
+  }
+
+  var text = buildIcs(items);
+
   if(!text){
-    if(items.length===1){ sheetTime(items[0].id); setTimeout(function(){toast(t("noRemind"));},50); }
-    else { closeSheet(); toast(t("noRemind")); }
+    closeSheet();
+    toast("Kunne ikke oprette kalenderaftale");
     return;
   }
 
-  var it=items[0];
-  var title=encodeURIComponent(plain(it.text));
-  var desc=encodeURIComponent("Bjørkliste");
+  var blob = new Blob(
+    [text],
+    {type:"text/calendar;charset=utf-8"}
+  );
 
-  // Android: send directly to the calendar app first
-  if(/Android/i.test(navigator.userAgent)){
-    var d=today();
-    var tm=(it.time||"09:00").split(":");
-    d.setHours(+tm[0],+tm[1],0,0);
-    var start=d.getTime();
-    var end=start+900000;
-    var intent="intent://calendar/event?title="+title+"&description="+desc+"&beginTime="+start+"&endTime="+end+"#Intent;scheme=content;package=com.google.android.calendar;end";
-    window.location.href=intent;
-    setTimeout(function(){fallbackIcs(text,name);},1200);
-    return;
+  var url = URL.createObjectURL(blob);
+
+  // Forsøg direkte kalenderåbning på mobil.
+  // Hvis browseren ikke tillader det, åbnes kalender-importen.
+  if(/Android|iPhone|iPad/i.test(navigator.userAgent)){
+    window.location.href = url;
+  } else {
+    window.open(url, "_blank");
   }
 
-  fallbackIcs(text,name);
-}
+  setTimeout(function(){
+    URL.revokeObjectURL(url);
+  },5000);
 
-function fallbackIcs(text,name){
-  var blob=new Blob([text],{type:"text/calendar;charset=utf-8"});
-  var url=URL.createObjectURL(blob);
-  var a=document.createElement("a");
-  a.href=url;
-  a.download="bjorkliste-"+slug(name)+".ics";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(function(){URL.revokeObjectURL(url);},3000);
   closeSheet();
 }
 
