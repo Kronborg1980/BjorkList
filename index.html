@@ -941,9 +941,20 @@ function buildIcs(items){
   out.push("END:VCALENDAR");
   return any ? out.join("\r\n") : "";
 }
+
 function downloadIcs(items, name){
   var text=buildIcs(items);
-  if(!text){ toast(t("noRemind")); return; }
+  if(!text){
+    if(items.length === 1) {
+      /* Åbn tidsindstillingen automatisk for det punkt du ville tilføje */
+      sheetTime(items[0].id);
+      setTimeout(function(){ toast(t("noRemind")); }, 50);
+    } else {
+      closeSheet();
+      toast(t("noRemind"));
+    }
+    return;
+  }
   var a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob([text],{type:"text/calendar;charset=utf-8"}));
   a.download="bjorkliste-"+slug(name)+".ics";
@@ -1540,7 +1551,7 @@ function pdfWeek(doc, L, y){
 }
 function makePdf(mode){
   var J = window.jspdf && window.jspdf.jsPDF;
-  if(!J){ toast(t("pdfMissing")); setTimeout(function(){ window.print(); }, 900); return; }
+  if(!J){ closeSheet(); toast(t("pdfMissing")); setTimeout(function(){ window.print(); }, 900); return; }
   var doc=new J({unit:"pt", format:"a4"});
   var L=activeList(), stamp2=key(today()), name;
   if(mode==="all"){
