@@ -324,7 +324,7 @@ body.big .addbox input{font-size:20px}
 <body>
 <div class="wrap">
   <header class="top">
-    <div class="brand"><span class="bark" aria-hidden="true"></span><h1>Bjørkliste</h1></div>
+    <div class="brand"><span class="bark" aria-hidden="true"></span><h1 id="brandName">Bjørkliste</h1></div>
     <button class="iconbtn" id="btnSync" data-state="off" title="Sync">☁️</button>
     <button class="iconbtn" id="btnPrint" title="Print">🖨️</button>
     <button class="iconbtn" id="btnSettings" title="Settings">⚙️</button>
@@ -367,7 +367,7 @@ var T = {
     save:"Gem", cancel:"Fortryd", del:"Slet", delList:"Slet listen",
     repeat:"Gentag", once:"Én gang", daily:"Hver dag", weekly:"Valgte dage", monthly:"Én gang om måneden",
     pickDays:"Vælg dage", pickEmoji:"Vælg et ikon",
-    settings:"Indstillinger", yourName:"Navn", language:"Sprog", sound:"Lyd", bigMode:"Store knapper (til børn)",
+    settings:"Indstillinger", appName:"Navn på appen", yourName:"Dit navn", language:"Sprog", sound:"Lyd", bigMode:"Store knapper (til børn)",
     theme:"Udseende", day:"Dag", dusk:"Aften", on:"Til", off:"Fra",
     export:"Gem fil", import:"Hent fil", reset:"Nulstil alt", resetAsk:"Slet alle lister og start forfra?",
     deleted:"Punktet er slettet", undo:"Fortryd", listDeleted:"Listen er slettet",
@@ -385,7 +385,7 @@ var T = {
     icsNote:"Til iPhone, Outlook og andre kalendere. Filen skal åbnes bagefter.",
     notifAsk:"Sig ja til beskeder, så siger appen til — men kun mens den er åben.",
     notifBlocked:"Beskeder er slået fra i browseren", calNote:"Kalenderen ringer også når appen er lukket.",
-    remindNote:"Beskeder virker kun mens Bjørkliste er åben. Skal den ringe uanset hvad, så læg den i kalenderen.",
+    remindNote:"Beskeder virker kun mens appen er åben. Skal den ringe uanset hvad, så læg den i kalenderen.",
     timeNow:"Det er tid til",
     voice:"Sig det højt", listening:"Lytter …",
     voiceHint:"Sig ét punkt ad gangen — eller flere med komma. Tryk igen for at stoppe.",
@@ -420,7 +420,7 @@ var T = {
     save:"Save", cancel:"Cancel", del:"Delete", delList:"Delete list",
     repeat:"Repeat", once:"One time", daily:"Every day", weekly:"Chosen days", monthly:"Once a month",
     pickDays:"Pick days", pickEmoji:"Pick an icon",
-    settings:"Settings", yourName:"Name", language:"Language", sound:"Sound", bigMode:"Big buttons (for kids)",
+    settings:"Settings", appName:"App name", yourName:"Your name", language:"Language", sound:"Sound", bigMode:"Big buttons (for kids)",
     theme:"Look", day:"Day", dusk:"Evening", on:"On", off:"Off",
     export:"Save file", import:"Open file", reset:"Reset everything", resetAsk:"Delete all lists and start over?",
     deleted:"Item deleted", undo:"Undo", listDeleted:"List deleted",
@@ -438,7 +438,7 @@ var T = {
     icsNote:"For iPhone, Outlook and other calendars. The file has to be opened afterwards.",
     notifAsk:"Allow notifications and the app will say when — but only while it's open.",
     notifBlocked:"Notifications are blocked in the browser", calNote:"The calendar rings even when the app is closed.",
-    remindNote:"Notifications only work while Bjørkliste is open. To be rung regardless, put it in the calendar.",
+    remindNote:"Notifications only work while the app is open. To be rung regardless, put it in the calendar.",
     timeNow:"Time for",
     voice:"Say it out loud", listening:"Listening …",
     voiceHint:"One item at a time — or several with commas. Tap again to stop.",
@@ -514,7 +514,7 @@ function seed(){
       return mkItem(it[0], it[1], it[2], it[3]); }) };
   });
   lists.forEach(function(l){ l.ts=Date.now(); });
-  return { v:2, name:"Bjørk", lang:lang, theme:"day", sound:true, big:false,
+  return { v:2, title:"Bjørkliste", name:"Bjørk", lang:lang, theme:"day", sound:true, big:false,
            view:"today", active:lists[0].id, lists:lists, tomb:{}, prefTs:Date.now() };
 }
 function mkItem(text, emoji, repeat, days){
@@ -529,6 +529,8 @@ function touchPrefs(){ S.prefTs=Date.now(); }
 var S = load() || seed();
 if(!S.lists || !S.lists.length){ S = seed(); }
 if(!S.lists.some(function(l){ return l.id===S.active; })) S.active=S.lists[0].id;
+if(!S.title) S.title="Bjørkliste";
+function appName(){ return (S.title||"Bjørkliste").trim() || "Bjørkliste"; }
 if(!S.v || S.v<2){
   S.v=2; S.tomb=S.tomb||{}; S.prefTs=S.prefTs||Date.now();
   S.lists.forEach(function(L){ L.ts=L.ts||Date.now();
@@ -758,6 +760,9 @@ function render(){
   document.documentElement.setAttribute("data-theme", S.theme);
   document.documentElement.lang = S.lang;
   document.body.classList.toggle("big", !!S.big);
+  var bn=$("#brandName");
+  if(bn && bn.textContent!==appName()) bn.textContent=appName();
+  if(document.title!==appName()) document.title=appName();
   var vb=document.querySelectorAll("#views button");
   for(var i=0;i<vb.length;i++){
     vb[i].textContent = t(vb[i].getAttribute("data-view"));
@@ -946,7 +951,7 @@ function buildIcs(items){
       "DTSTART:"+start,
       "DURATION:PT15M",
       "SUMMARY:"+icsEsc(it.text),
-      "DESCRIPTION:"+icsEsc("Bjørkliste"));
+      "DESCRIPTION:"+icsEsc(appName()));
     if(rule) out.push(rule);
     out.push("BEGIN:VALARM","TRIGGER:PT0M","ACTION:DISPLAY",
       "DESCRIPTION:"+icsEsc(it.text),"END:VALARM","END:VEVENT");
@@ -970,7 +975,7 @@ function gcalUrl(it){
   var p=["action=TEMPLATE",
     "text="+encodeURIComponent(plain(it.text)),
     "dates="+fmt(start)+"/"+fmt(end),
-    "details="+encodeURIComponent("Bjørkliste")];
+    "details="+encodeURIComponent(plain(appName()))];
   if(tz) p.push("ctz="+encodeURIComponent(tz));
   var r=icsRule(it);
   if(r) p.push("recur="+encodeURIComponent(r));
@@ -989,7 +994,7 @@ function downloadIcs(items, name, empty){
   if(!text){ toast(empty||t("noTimes")); return; }
   var a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob([text],{type:"text/calendar;charset=utf-8"}));
-  a.download="bjorkliste-"+slug(name)+".ics";
+  a.download=slug(appName())+"-"+slug(name)+".ics";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(function(){ URL.revokeObjectURL(a.href); }, 3000);
   closeSheet();
@@ -1099,6 +1104,7 @@ function sheetList(L){
 
 function sheetSettings(){
   var body=
+    '<label class="field"><span>'+t("appName")+'</span><input type="text" id="sTitle" value="'+esc(appName())+'"></label>'+
     '<label class="field"><span>'+t("yourName")+'</span><input type="text" id="sName" value="'+esc(S.name)+'"></label>'+
     '<div class="field"><span>'+t("language")+'</span><div class="opts">'+
       '<button class="opt" data-lang="da" aria-pressed="'+(S.lang==="da")+'">Dansk</button>'+
@@ -1122,6 +1128,7 @@ function sheetSettings(){
     '<input type="file" id="sFile" accept="application/json" hidden>';
   openSheet(t("settings"), body);
   var b=$("#sheetBody");
+  $("#sTitle").addEventListener("input", function(){ S.title=this.value; touchPrefs(); save(); render(); });
   $("#sName").addEventListener("input", function(){ S.name=this.value; touchPrefs(); save(); });
   b.addEventListener("click", function(e){
     var el;
@@ -1133,7 +1140,7 @@ function sheetSettings(){
     if(e.target.closest("#sExport")){
       var blob=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});
       var a=document.createElement("a"); a.href=URL.createObjectURL(blob);
-      a.download="bjorkliste-"+key(today())+".json"; a.click();
+      a.download=slug(appName())+"-"+key(today())+".json"; a.click();
       setTimeout(function(){ URL.revokeObjectURL(a.href); },2000); return;
     }
     if(e.target.closest("#sSync")){ sheetSync(); return; }
@@ -1375,14 +1382,14 @@ function exportDoc(s){
   var cut=Date.now()-30*864e5, tomb={};
   for(var k in (s.tomb||{})) if(s.tomb[k]>cut) tomb[k]=s.tomb[k];
   s.tomb=tomb;
-  return { v:2, name:s.name, lang:s.lang, theme:s.theme, sound:s.sound, big:s.big,
+  return { v:2, title:s.title, name:s.name, lang:s.lang, theme:s.theme, sound:s.sound, big:s.big,
            prefTs:s.prefTs||0, tomb:tomb, lists:s.lists };
 }
 
 function mergeDocs(local, remote){
   var out={v:2, view:local.view, active:local.active, hidSeen:local.hidSeen};
   var pref = (remote.prefTs||0) > (local.prefTs||0) ? remote : local;
-  ["name","lang","theme","sound","big"].forEach(function(k){ out[k]=pref[k]; });
+  ["title","name","lang","theme","sound","big"].forEach(function(k){ out[k]=pref[k]; });
   out.prefTs=Math.max(local.prefTs||0, remote.prefTs||0);
   var tomb={};
   [local.tomb||{}, remote.tomb||{}].forEach(function(m){
@@ -1511,7 +1518,7 @@ function pdfHead(doc, sub){
   barkEdge(doc);
   mark(doc, PM, 76, 24, INK);
   doc.setFont("helvetica","bold"); doc.setFontSize(25); setInk(doc,INK);
-  doc.text("Bjørkliste", PM+17, 74);
+  doc.text(plain(appName()), PM+17, 74);
   doc.setFont("helvetica","normal"); doc.setFontSize(9);
   setInk(doc,SOFT);
   doc.text(plain(sub), PW-PM, 74, {align:"right"});
@@ -1527,7 +1534,7 @@ function pdfFoot(doc){
     doc.line(PM, PH-52, PW-PM, PH-52);
     doc.setFont("helvetica","normal"); doc.setFontSize(8);
     setInk(doc, SOFT);
-    doc.text("Bjørkliste", PM, PH-36);
+    doc.text(plain(appName()), PM, PH-36);
     doc.text(String(i)+" / "+n, PW/2, PH-36, {align:"center"});
     mark(doc, PW-PM-5, PH-32, 12, [190,208,182]);
   }
@@ -1643,16 +1650,16 @@ function makePdf(mode){
   if(mode==="all"){
     var y=pdfHead(doc, plain(S.name||"Bjørk")+" · "+stamp2);
     S.lists.forEach(function(x){ y=pdfList(doc, x, y, plain(S.name||"Bjørk")+" · "+stamp2); });
-    name="Bjorkliste-alle-"+stamp2+".pdf";
+    name=slug(appName())+"-alle-"+stamp2+".pdf";
   } else if(mode==="week"){
     var ws=weekStart(today());
     var y2=pdfHead(doc, plain(t("week"))+" · "+key(ws));
     pdfWeek(doc, L, y2, plain(t("week"))+" · "+key(ws));
-    name="Bjorkliste-"+slug(L.name)+"-uge-"+key(ws)+".pdf";
+    name=slug(appName())+"-"+slug(L.name)+"-uge-"+key(ws)+".pdf";
   } else {
     var y3=pdfHead(doc, plain(S.name||"Bjørk")+" · "+stamp2);
     pdfList(doc, L, y3, plain(S.name||"Bjørk")+" · "+stamp2);
-    name="Bjorkliste-"+slug(L.name)+"-"+stamp2+".pdf";
+    name=slug(appName())+"-"+slug(L.name)+"-"+stamp2+".pdf";
   }
   pdfFoot(doc);
   doc.save(name);
